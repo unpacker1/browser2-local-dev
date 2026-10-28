@@ -28,8 +28,8 @@ import urllib.request
 
 import browser2_local_locale_sync_v21 as v21
 
-VERSION="22.1"
-PORT=8908
+VERSION="22.2"
+PORT=8909
 ROOT=v21.ROOT
 BASE=v21.BASE
 REPORTS=v21.REPORTS
@@ -61,6 +61,8 @@ VALID_BY_FOLDER={
     'trees':{'.glb','.webp','.png','.ktx2','.jpg','.jpeg'},
     'effects':{'.webp','.png','.ktx2'},
     'maps':{'.png','.webp','.jpg','.jpeg','.glb'},
+    'ui':{'.png','.webp','.jpg','.jpeg','.ktx2'},
+    'icons':{'.png','.webp','.jpg','.jpeg','.ktx2'},
 }
 SPECIAL='/assets/world/textures/special/spheremap.jpg'
 BOOTSTRAP_ASSETS=CATALOGS+(SPECIAL,)
@@ -180,7 +182,7 @@ class PublicAssetFetcher:
             return result
 
 class Handler(v21.Handler):
-    server_version='Browser2Local/22.1'
+    server_version='Browser2Local/22.2'
     def send_response(self,code,message=None):
         # Only exact allowlisted public static asset pathnames, without query or cookies.
         if self.command in ('GET','HEAD') and code>=400:
@@ -226,7 +228,7 @@ def catalog_sync():
     fetcher=PublicAssetFetcher()
     results=[fetcher.fetch(path) for path in BOOTSTRAP_ASSETS]
     REPORTS.mkdir(parents=True,exist_ok=True)
-    p=REPORTS/'browser2_v22_1_catalog_sync.json'
+    p=REPORTS/'browser2_v22_2_catalog_sync.json'
     p.write_text(json.dumps({'version':VERSION,'results':results,
         'original_files_modified':False},indent=2,ensure_ascii=False),encoding='utf-8')
     print('[KATALOG SENKRON]',p)
@@ -245,7 +247,7 @@ def report(port):
     except (OSError,ValueError):
         raise SystemExit('[HATA] V22 sunucusuna ulasilamadi')
     REPORTS.mkdir(parents=True,exist_ok=True)
-    path=REPORTS/'browser2_v22_1_world_asset_raporu.json'
+    path=REPORTS/'browser2_v22_2_world_asset_raporu.json'
     path.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
     print('[WORLD]',path)
     print('[KATALOG]',[(x['path'],x['status']) for x in d['catalogs']])
@@ -254,7 +256,7 @@ def report(port):
     # Preserve prior V20.4 report instead of overwriting it.
     boot=v21.v20.fetch(port)
     if boot:
-        boot_path=REPORTS/'browser2_v22_1_boot_raporu.json'
+        boot_path=REPORTS/'browser2_v22_2_boot_raporu.json'
         boot_path.write_text(json.dumps(boot,ensure_ascii=False,indent=2),encoding='utf-8')
         print('[BOOT]',boot_path)
         print('[YUKLEME]',boot.get('events',[]))
@@ -267,6 +269,9 @@ def selftest():
     assert allowed_path('/assets/scenery/buildings/tree_101.glb')
     assert allowed_path('/assets/scenery/textures/stone01.webp')
     assert allowed_path('/assets/trees/textures/tree01.webp')
+    assert allowed_path('/assets/ui/game/main_menu/start_button.png')
+    assert allowed_path('/assets/icons/icon_0001.png')
+    assert not allowed_path('/assets/ui/../../auth/private.png')
     assert allowed_path('/assets/catalogs/items/items.json')
     assert allowed_path('/assets/catalogs/ui/img/game/dungeon_info/back.png')
     # A client cancelling an asset transfer after HTTP headers is not HTTP 500.
@@ -323,7 +328,7 @@ def selftest():
         finally:
             if previous is None:os.environ.pop('BROWSER2_PRIVATE_DB',None)
             else:os.environ['BROWSER2_PRIVATE_DB']=previous
-    print('[SELFTEST OK] V22.1 widened asset types, cancelled downloads, public-path errors, original priority')
+    print('[SELFTEST OK] V22.2 UI/icons original public cache, nested catalogs, original priority, safe errors')
 
 def serve(port):
     v21.v20.v19.v18.v17.prepare_env()
