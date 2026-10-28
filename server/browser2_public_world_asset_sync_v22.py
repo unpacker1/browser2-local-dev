@@ -55,6 +55,7 @@ VALID_BY_FOLDER={
     'maps':{'.png','.webp','.jpg','.jpeg','.glb'},
 }
 SPECIAL='/assets/world/textures/special/spheremap.jpg'
+BOOTSTRAP_ASSETS=CATALOGS+(SPECIAL,)
 
 def allowed_path(path):
     if not isinstance(path,str) or not RELATIVE.fullmatch(path):return False
@@ -178,7 +179,7 @@ class Handler(v21.Handler):
             return self.json(200,{'version':VERSION,
                 'world_asset_cache':self.server.world_assets.status(),
                 'catalogs':[dict(path=path,status=local_asset(
-                    self.server.root,self.server.world_assets.overlay,path)[1]) for path in CATALOGS],
+                    self.server.root,self.server.world_assets.overlay,path)[1]) for path in BOOTSTRAP_ASSETS],
                 'original_files_modified':False,
                 'warning':'Optional missing asset cache only; local GAME remains incomplete'})
         return super().do_GET()
@@ -201,7 +202,7 @@ class Server(v21.Server):
 
 def catalog_sync():
     fetcher=PublicAssetFetcher()
-    results=[fetcher.fetch(path) for path in CATALOGS]
+    results=[fetcher.fetch(path) for path in BOOTSTRAP_ASSETS]
     REPORTS.mkdir(parents=True,exist_ok=True)
     p=REPORTS/'browser2_v22_catalog_sync.json'
     p.write_text(json.dumps({'version':VERSION,'results':results,
@@ -233,6 +234,7 @@ def report(port):
 def selftest():
     assert allowed_path('/assets/catalogs/mobs-motion-index.json')
     assert allowed_path(SPECIAL)
+    assert BOOTSTRAP_ASSETS[-1]==SPECIAL
     assert allowed_path('/assets/scenery/buildings/tree_101.glb')
     assert allowed_path('/assets/effects/spells/fire.webp')
     for path in ('/assets/../../local.sqlite3','/assets/catalogs/../../auth.json',
