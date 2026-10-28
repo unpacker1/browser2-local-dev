@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """V20 optional browser boot observer for local Browser2 debugging.
 
-Only port 8901. The original HTML, JS, WASM and assets on disk stay unchanged.
+Only the opt-in localhost diagnostic port. The original HTML, JS, WASM and assets on disk stay unchanged.
 A diagnostic script is added to an in-memory HTML RESPONSE only when b2diag=1.
 No raw browser errors, IDs, URLs, queries, headers or user data are collected.
 """
@@ -23,13 +23,13 @@ import urllib.parse
 import urllib.request
 import browser2_http_route_audit_v19 as v19
 
-PORT=8903
-EVENTS={'loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed','boot_caught'}
-CATEGORIES={'none','webgpu','gpu_absent','shader','model','texture','terrain','map','auth','session','protocol','network','catalog','locale','resource','unknown','world','error_overlay','runtime_shape'}
+PORT=8904
+EVENTS={'loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed','boot_caught','boot_cause'}
+CATEGORIES={'none','webgpu','gpu_absent','shader','model','texture','terrain','map','auth','session','protocol','network','catalog','locale','resource','unknown','world','error_overlay','runtime_shape','map_catalog','asset_catalog','skills_catalog','catalog_other','catalog_parse','gpu_device_lost'}
 STAGES={'boot','ready','check08','check20','check40','unknown','manifest','terrain_env','player','world'}
 OBSERVER=r"""(()=>{
 'use strict';
-const allowed=new Set(['loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed','boot_caught']);
+const allowed=new Set(['loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed','boot_caught','boot_cause']);
 function kind(v){
  const m=String(v||'').toLowerCase().slice(0,500);
  for(const [k,r] of [
@@ -67,6 +67,15 @@ const diagnosticConsoleError=function(...args){
    const phaseMap={'manifest':'manifest','terrain+env':'terrain_env','player':'player','world':'world'};
    const phase=phaseMap[globalThis.__loading?.ledger?.currentPhase]||'unknown';
    send('boot_caught',category,phase);
+    // Assign only a fixed cause label. Never send the exception text.
+    const msg=message.toLowerCase();
+    const cause=/production server map catalog unavailable|empty or malformed map catalog/.test(msg)?'map_catalog':
+       /catalogs?\/catalog\.json/.test(msg)?'asset_catalog':
+       /catalogs?\/skills\.json/.test(msg)?'skills_catalog':
+       /(?:catalog|json).*(?:invalid|malformed|parse|syntax)/.test(msg)?'catalog_parse':
+       /catalog/.test(msg)||/catalog/i.test(name)?'catalog_other':
+       /device lost|gpu device lost/i.test(msg)?'gpu_device_lost':category;
+    send('boot_cause',cause,phase);
   }
  }catch{}
  return Reflect.apply(originalConsoleError,this,args);
@@ -127,7 +136,7 @@ def inject(html):
     return html[:m.end()]+b'<script src="/__local__/v20/observer.js"></script>'+html[m.end():]
 
 class Handler(v19.Handler):
-    server_version='Browser2Local/20'
+    server_version='Browser2Local/20.3'
     def do_GET(self):
         url=urllib.parse.urlsplit(self.path)
         if url.path=='/__local__/':
@@ -147,8 +156,26 @@ class Handler(v19.Handler):
             with self.server.error_lock:
                 errors=[dict(method=m,http_status=int(code),route_shape=p,requests=n)
                         for (m,code,p),n in self.server.error_counts.most_common(100)]
-            return self.json(200,{'version':'20.2','events':events,
+            catalog_path=self.server.root/'assets/catalogs/catalog.json'
+            catalog_shape={'present':catalog_path.is_file(),'json_object':False,
+                'class_genders_array':False,'armors_array':False,'mobs_array':False,
+                'weapons_array':False}
+            if catalog_shape['present']:
+                try:
+                    if catalog_path.stat().st_size<=16*1024*1024:
+                        with catalog_path.open('r',encoding='utf-8') as infile:
+                            value=json.load(infile)
+                        catalog_shape['json_object']=isinstance(value,dict)
+                        if isinstance(value,dict):
+                            for key in ('class_genders','armors','mobs','weapons'):
+                                catalog_shape[key+'_array']=isinstance(value.get(key),list)
+                except (OSError,ValueError,UnicodeError):pass
+            with self.server.boot_lock: gpu_reports=self.server.gpu_failure_reports
+            return self.json(200,{'version':'20.3','events':events,
                 'failed_routes':errors,'launcher_events':dict(self.server.launcher_events),
+                'catalog_static_shape':catalog_shape,
+                'map_catalog_http_200':sum(v for (k,c),v in self.server.class_status.items() if k=='world_map_catalog' and c=='200'),
+                'gpu_failure_reports':gpu_reports,
                 'backend_metrics':dict(self.server.metrics),'active_world':self.server.active,
                 'original_files_modified':False,
                 'privacy':'Only fixed categories recorded; no original JS or raw error messages.',
@@ -162,6 +189,8 @@ class Handler(v19.Handler):
         return super().do_GET()
     def do_POST(self):
         if urllib.parse.urlsplit(self.path).path!='/__local__/v20/event':
+            if urllib.parse.urlsplit(self.path).path=='/client/gpu-failure':
+                with self.server.boot_lock:self.server.gpu_failure_reports+=1
             return super().do_POST()
         try:
             self.require_origin()
@@ -184,29 +213,33 @@ class Server(v19.Server):
         super().__init__(bind,root,state,fetcher)
         self.boot_lock=threading.Lock()
         self.boot_events=Counter()
+        self.gpu_failure_reports=0
         self.RequestHandlerClass=Handler
 
 def fetch(port=PORT):
     try:
         with urllib.request.urlopen(f'http://127.0.0.1:{port}/__local__/v20',timeout=2) as r:
             d=json.load(r)
-        return d if d.get('version')=='20.2' else None
+        return d if d.get('version')=='20.3' else None
     except (OSError,ValueError):return None
 
 def report(port=PORT):
     d=fetch(port)
     if not d:raise SystemExit('[HATA] V20 calismiyor')
-    p=v19.v18.REPORTS/'browser2_v20_2_boot_hata_raporu.json'
+    p=v19.v18.REPORTS/'browser2_v20_3_boot_hata_raporu.json'
     p.parent.mkdir(parents=True,exist_ok=True)
     p.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
     print('[RAPOR]',p)
     print('[TARAYICI]',d['events'])
+    print('[KATALOG]',d['catalog_static_shape'],'map_catalog_200=',d['map_catalog_http_200'])
+    print('[GPU]',{'gpu_failure_reports':d['gpu_failure_reports']})
     print('[GAME]',{k:v for k,v in d['backend_metrics'].items() if k.startswith('game_join')})
     print('[HTTP]',d['failed_routes'][:12])
 
 def selftest():
     assert OLD_LAUNCH in v19.v18.CLIENT_HTML
     assert inject(b'<html><head></head><body>original</body></html>') is not None
+    assert "boot_cause" in OBSERVER and 'gpu_device_lost' in CATEGORIES
     # Node is available in GitHub Actions. Validate injected JavaScript syntax without executing it.
     if __import__('shutil').which('node'):
         checked=subprocess.run(['node','--check','--input-type=commonjs'],
@@ -242,7 +275,7 @@ def selftest():
         finally:
             if prior is None:os.environ.pop('BROWSER2_PRIVATE_DB',None)
             else:os.environ['BROWSER2_PRIVATE_DB']=prior
-    print('[SELFTEST OK] V20.2 classified boot failure observer, original disk files unmodified, no sensitive messages')
+    print('[SELFTEST OK] V20.3 catalog/GPU cause audit, original disk files unmodified, no sensitive messages')
 
 def serve(port):
     v19.v18.v17.prepare_env()
