@@ -35,7 +35,9 @@ OVERLAY=BASE/'YEREL_SUNUCU/browser2_v21_locale_overlay'
 HOST="https://browser2.to"
 LANGS=('en','tr')
 NAMES=('client.intro','client.net_ui','system','game.world','game.item',
-       'game.mob','game.skill','game.skill_extra','game.companion')
+       'game.mob','game.skill','game.skill_extra','game.companion',
+       'client.interface','client.game','game.quest','client.dungeons',
+       'client.options','client.forum','client.minimap','client.tooltip')
 MAX_JSON=2*1024*1024
 
 def allowed_path(path):
