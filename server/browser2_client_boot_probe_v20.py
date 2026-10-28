@@ -23,13 +23,13 @@ import urllib.parse
 import urllib.request
 import browser2_http_route_audit_v19 as v19
 
-PORT=8901
-EVENTS={'loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice'}
+PORT=8902
+EVENTS={'loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed'}
 CATEGORIES={'none','webgpu','gpu_absent','shader','model','texture','terrain','map','auth','session','protocol','network','catalog','locale','resource','unknown','world','error_overlay'}
-STAGES={'boot','ready','check08','check20','check40','unknown'}
+STAGES={'boot','ready','check08','check20','check40','unknown','manifest','terrain_env','player','world'}
 OBSERVER=r"""(()=>{
 'use strict';
-const allowed=new Set(['loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice']);
+const allowed=new Set(['loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed']);
 function kind(v){
  const m=String(v||'').toLowerCase().slice(0,500);
  for(const [k,r] of [
@@ -74,6 +74,26 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 },{once:true});
 else {send('ready','none','ready');check('ready');}
 for(const [ms,stage] of [[8000,'check08'],[20000,'check20'],[40000,'check40']])setTimeout(()=>check(stage),ms);
+// Original client exposes a read-only loading ledger. Sample only its fixed states.
+const stageMap={'manifest':'manifest','terrain+env':'terrain_env','player':'player','world':'world','ready':'ready'};
+let lastPhase='',failureReported=false,assetFailureReported=false,worldReadyReported=false;
+function inspectBoot(){
+ try{
+  const loader=globalThis.__loading;
+  if(!loader)return;
+  const stage=stageMap[loader.ledger?.currentPhase]||'unknown';
+  if(stage!==lastPhase){lastPhase=stage;send('phase_seen','none',stage);}
+  if(loader.failedBoot&&!failureReported){failureReported=true;send('boot_failed','unknown',stage);}
+  if(loader.dissolved&&!worldReadyReported){worldReadyReported=true;send('world_ready','none',stage);}
+  const failed=loader.ledger?.failed?.();
+  if(Array.isArray(failed)&&failed.length&&!assetFailureReported){
+   assetFailureReported=true;send('asset_failed','resource',stage);
+  }
+ }catch{}
+}
+inspectBoot();
+const bootPoll=setInterval(inspectBoot,1000);
+window.addEventListener('pagehide',()=>{inspectBoot();clearInterval(bootPoll);},{once:true});
 })();"""
 
 OLD_LAUNCH="location.assign('/?'+q.toString());"
@@ -105,7 +125,7 @@ class Handler(v19.Handler):
             with self.server.error_lock:
                 errors=[dict(method=m,http_status=int(code),route_shape=p,requests=n)
                         for (m,code,p),n in self.server.error_counts.most_common(100)]
-            return self.json(200,{'version':'20.0','events':events,
+            return self.json(200,{'version':'20.1','events':events,
                 'failed_routes':errors,'launcher_events':dict(self.server.launcher_events),
                 'backend_metrics':dict(self.server.metrics),'active_world':self.server.active,
                 'original_files_modified':False,
@@ -148,7 +168,7 @@ def fetch(port=PORT):
     try:
         with urllib.request.urlopen(f'http://127.0.0.1:{port}/__local__/v20',timeout=2) as r:
             d=json.load(r)
-        return d if d.get('version')=='20.0' else None
+        return d if d.get('version')=='20.1' else None
     except (OSError,ValueError):return None
 
 def report(port=PORT):
@@ -188,12 +208,13 @@ def selftest():
                 with urllib.request.urlopen(req) as r:assert json.load(r)['ok']
                 with urllib.request.urlopen(address+'/__local__/v20') as r:d=json.load(r)
                 assert d['events'][0]['event']=='loaded'
+                assert 'phase_seen' in OBSERVER and 'globalThis.__loading' in OBSERVER
                 assert (root/'index.html').read_bytes()==original
             finally:server.shutdown();server.server_close()
         finally:
             if prior is None:os.environ.pop('BROWSER2_PRIVATE_DB',None)
             else:os.environ['BROWSER2_PRIVATE_DB']=prior
-    print('[SELFTEST OK] V20 browser diagnostic, original disk files unmodified, no sensitive messages')
+    print('[SELFTEST OK] V20.1 browser phase ledger observer, original disk files unmodified, no sensitive messages')
 
 def serve(port):
     v19.v18.v17.prepare_env()
