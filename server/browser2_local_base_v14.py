@@ -298,6 +298,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise Error(404,'Route not available')
             self.static(p)
         except Error as e:self.err(e)
+        # Browser may cancel large GLB/image downloads after headers are sent.
+        # A closed peer is not an internal server error; never send a second 500.
+        except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError):return
         except Exception as e:logging.exception('GET failed');self.err(Error(500,'Internal local server error'))
     do_HEAD=do_GET
     def do_POST(self):
