@@ -109,6 +109,7 @@ class PublicAssetFetcher:
             return {'bytes_downloaded_this_run':self.bytes,
                 'statuses':dict(self.counts),
                 'attempted':len(self.attempts),
+                'attempt_results':list(self.attempts.values())[:200],
                 'limits':{'per_asset_bytes':MAX_SINGLE,'total_bytes':self.total}}
     def fetch(self,path):
         if not allowed_path(path):return {'path_class':'disallowed','status':'invalid_path'}
@@ -228,8 +229,14 @@ def report(port):
     print('[WORLD]',path)
     print('[KATALOG]',[(x['path'],x['status']) for x in d['catalogs']])
     print('[CACHE]',d['world_asset_cache'])
-    # V20 observer reports from the *same* V22 server, not an older port.
-    v21.v20.report(port)
+    # Preserve prior V20.4 report instead of overwriting it.
+    boot=v21.v20.fetch(port)
+    if boot:
+        boot_path=REPORTS/'browser2_v22_boot_raporu.json'
+        boot_path.write_text(json.dumps(boot,ensure_ascii=False,indent=2),encoding='utf-8')
+        print('[BOOT]',boot_path)
+        print('[YUKLEME]',boot.get('events',[]))
+        print('[GAME]',boot.get('backend_metrics',{}))
 
 def selftest():
     assert allowed_path('/assets/catalogs/mobs-motion-index.json')
