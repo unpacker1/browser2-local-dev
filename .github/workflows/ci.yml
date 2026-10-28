@@ -62,6 +62,12 @@ jobs:
         run: python server/browser2_public_world_asset_sync_v22.py selftest
       - name: V23 native spawn and first-village map provenance selftest
         run: python server/browser2_spawn_audit_v23.py selftest
+      - name: V24 original map geometry metadata selftest
+        run: python server/browser2_map_geometry_audit_v24.py selftest
+      - name: V24 public original map metadata inspection (optional)
+        if: matrix.python-version == '3.13'
+        continue-on-error: true
+        run: python server/browser2_map_geometry_audit_v24.py fetch-public
       - name: Build Termux update package
         if: matrix.python-version == '3.13'
         shell: bash
