@@ -383,10 +383,26 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Sec-WebSocket-Accept',accept);self.end_headers()
         self.close_connection=True
         with self.server.active_lock:self.server.active+=1
-        try:self.world_loop(WS(self.connection))
-        except (BrokenPipeError,ConnectionResetError,EOFError,socket.timeout):pass
-        except Exception:logging.exception('world session failed')
+        self.server.metrics['world_ws_opened']+=1
+        ws_started=time.monotonic()
+        close_reason='handler_return'
+        try:
+            self.world_loop(WS(self.connection))
+        except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError):
+            close_reason='peer_disconnect'
+        except EOFError:
+            close_reason='peer_eof'
+        except socket.timeout:
+            close_reason='socket_timeout'
+        except Exception:
+            close_reason='server_exception'
+            logging.exception('world session failed')
         finally:
+            elapsed=time.monotonic()-ws_started
+            self.server.metrics['world_ws_closed']+=1
+            self.server.metrics['world_ws_end_'+close_reason]+=1
+            age='lt5' if elapsed<5 else ('lt30' if elapsed<30 else 'ge30')
+            self.server.metrics['world_ws_lifetime_'+age]+=1
             with self.server.active_lock:self.server.active-=1
     def world_loop(self,ws):
         store=self.server.store
@@ -396,8 +412,12 @@ class Handler(BaseHTTPRequestHandler):
             msg=ws.receive()
             if msg:
                 op,data=msg
-                if op==8:return
-                if op==9:ws.send(data,opcode=10);continue
+                if op==8:
+                    self.server.metrics['world_ws_client_close_frame']+=1
+                    return
+                if op==9:
+                    self.server.metrics['world_ws_ping_frame']+=1
+                    ws.send(data,opcode=10);continue
                 if op!=2:continue
                 if ch is None:
                     try:
@@ -414,8 +434,10 @@ class Handler(BaseHTTPRequestHandler):
                     ws.send(jbytes({'id':ch['id'],'name':ch['name'],'level':ch['level'],'skills':[],'buffs':[],'gold':0},3))
                     ws.send(jbytes({'items':[],'equipment':{},'gold':0},4))
                     ws.send(snapshot(1,ch,handle,True,last));tick=1
+                    self.server.metrics['world_initial_state_sent']+=1
                     last_frame=time.monotonic();continue
                 if data[:2]==b'\x0a\x02' and len(data)>=10:
+                    self.server.metrics['world_move_commands']+=1
                     x,z=struct.unpack_from('<ii',data,2)
                     target=(max(-20000.,min(20000.,x/100)),max(-20000.,min(20000.,z/100)))
                 elif data[:2]==b'\x0a\x03' and len(data)>=3:pass # heading handled by client prediction
@@ -423,7 +445,9 @@ class Handler(BaseHTTPRequestHandler):
                     try:
                         length=struct.unpack_from('<H',data,2)[0]
                         d=json.loads(data[4:4+length]);kind=d.get('t')
-                        if kind=='ping':ws.send(jbytes({'m':'pong','d':{'clientTime':d.get('clientTime'),'serverTime':int(time.time()*1000),'timezoneOffsetMinutes':0}},9))
+                        if kind=='ping':
+                            self.server.metrics['world_ping_commands']+=1
+                            ws.send(jbytes({'m':'pong','d':{'clientTime':d.get('clientTime'),'serverTime':int(time.time()*1000),'timezoneOffsetMinutes':0}},9))
                     except (ValueError,TypeError,IndexError,json.JSONDecodeError):pass
             if ch is None:continue
             now=time.monotonic()
@@ -524,7 +548,14 @@ def selftest():
         accepted=json.loads(frames[0][1:]);assert accepted['characterId']==ch['id'] and accepted['mapId']=='map_a2'
         assert len(frames[1])==32
         assert len(frames[4])>100 and frames[4][0]==1
+        assert server.metrics['world_ws_opened']>=1
+        assert server.metrics['world_initial_state_sent']>=1
         sock.close()
+        for _ in range(40):
+            if server.metrics['world_ws_closed']>=1:break
+            time.sleep(.05)
+        assert server.metrics['world_ws_closed']>=1
+        assert sum(server.metrics['world_ws_lifetime_'+t] for t in ('lt5','lt30','ge30'))>=1
         server.shutdown();server.server_close()
     print('[SELFTEST OK] SQLite AUTH, one-use join, HTTP/Range, WebSocket upgrade, HELLO 28, JoinAccepted, SELF, INVENTORY, SNAPSHOT')
 
