@@ -23,13 +23,13 @@ import urllib.parse
 import urllib.request
 import browser2_http_route_audit_v19 as v19
 
-PORT=8902
-EVENTS={'loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed'}
-CATEGORIES={'none','webgpu','gpu_absent','shader','model','texture','terrain','map','auth','session','protocol','network','catalog','locale','resource','unknown','world','error_overlay'}
+PORT=8903
+EVENTS={'loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed','boot_caught'}
+CATEGORIES={'none','webgpu','gpu_absent','shader','model','texture','terrain','map','auth','session','protocol','network','catalog','locale','resource','unknown','world','error_overlay','runtime_shape'}
 STAGES={'boot','ready','check08','check20','check40','unknown','manifest','terrain_env','player','world'}
 OBSERVER=r"""(()=>{
 'use strict';
-const allowed=new Set(['loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed']);
+const allowed=new Set(['loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed','boot_caught']);
 function kind(v){
  const m=String(v||'').toLowerCase().slice(0,500);
  for(const [k,r] of [
@@ -53,6 +53,28 @@ function send(event,category='none',stage='unknown'){
  try{fetch('/__local__/v20/event',{method:'POST',headers:{'Content-Type':'application/json'},
  body:JSON.stringify({event,category,stage}),credentials:'same-origin',keepalive:true}).catch(()=>{});}catch{}
 }
+// Opt-in only: observe the already-handled boot failure without altering game sources.
+const originalConsoleError=console.error;
+const diagnosticConsoleError=function(...args){
+ try{
+  const label=args.filter(x=>typeof x==='string').slice(0,4).join(' ').slice(0,280).toLowerCase();
+  if(/boot failed|boot failure/.test(label)){
+   const exception=args.find(x=>x&&typeof x==='object'&&('message' in x||'name' in x));
+   const name=String(exception?.name||'');
+   const message=String(exception?.message||'');
+   const category=name==='WebGpuInitError'?'webgpu':
+      /cannot read (?:properties|property)|undefined|null is not|is not a function|is not iterable|unexpected token/i.test(message)?'runtime_shape':kind(message||name);
+   const phaseMap={'manifest':'manifest','terrain+env':'terrain_env','player':'player','world':'world'};
+   const phase=phaseMap[globalThis.__loading?.ledger?.currentPhase]||'unknown';
+   send('boot_caught',category,phase);
+  }
+ }catch{}
+ return Reflect.apply(originalConsoleError,this,args);
+};
+console.error=diagnosticConsoleError;
+window.addEventListener('pagehide',()=>{
+ if(console.error===diagnosticConsoleError)console.error=originalConsoleError;
+},{once:true});
 window.addEventListener('error',e=>{
  if(e.target&&e.target!==window&&/^(IMG|SCRIPT|LINK)$/.test(e.target.tagName||'')){
   send('resource_error','resource');return;
@@ -125,7 +147,7 @@ class Handler(v19.Handler):
             with self.server.error_lock:
                 errors=[dict(method=m,http_status=int(code),route_shape=p,requests=n)
                         for (m,code,p),n in self.server.error_counts.most_common(100)]
-            return self.json(200,{'version':'20.1','events':events,
+            return self.json(200,{'version':'20.2','events':events,
                 'failed_routes':errors,'launcher_events':dict(self.server.launcher_events),
                 'backend_metrics':dict(self.server.metrics),'active_world':self.server.active,
                 'original_files_modified':False,
@@ -168,13 +190,13 @@ def fetch(port=PORT):
     try:
         with urllib.request.urlopen(f'http://127.0.0.1:{port}/__local__/v20',timeout=2) as r:
             d=json.load(r)
-        return d if d.get('version')=='20.1' else None
+        return d if d.get('version')=='20.2' else None
     except (OSError,ValueError):return None
 
 def report(port=PORT):
     d=fetch(port)
     if not d:raise SystemExit('[HATA] V20 calismiyor')
-    p=v19.v18.REPORTS/'browser2_v20_tarayici_hata_raporu.json'
+    p=v19.v18.REPORTS/'browser2_v20_2_boot_hata_raporu.json'
     p.parent.mkdir(parents=True,exist_ok=True)
     p.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
     print('[RAPOR]',p)
@@ -214,12 +236,13 @@ def selftest():
                 with urllib.request.urlopen(address+'/__local__/v20') as r:d=json.load(r)
                 assert d['events'][0]['event']=='loaded'
                 assert 'phase_seen' in OBSERVER and 'globalThis.__loading' in OBSERVER
+    assert 'boot_caught' in OBSERVER and 'Reflect.apply(originalConsoleError' in OBSERVER
                 assert (root/'index.html').read_bytes()==original
             finally:server.shutdown();server.server_close()
         finally:
             if prior is None:os.environ.pop('BROWSER2_PRIVATE_DB',None)
             else:os.environ['BROWSER2_PRIVATE_DB']=prior
-    print('[SELFTEST OK] V20.1 browser phase ledger observer, original disk files unmodified, no sensitive messages')
+    print('[SELFTEST OK] V20.2 classified boot failure observer, original disk files unmodified, no sensitive messages')
 
 def serve(port):
     v19.v18.v17.prepare_env()
