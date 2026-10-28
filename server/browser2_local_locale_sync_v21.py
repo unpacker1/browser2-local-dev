@@ -37,7 +37,8 @@ LANGS=('en','tr')
 NAMES=('client.intro','client.net_ui','system','game.world','game.item',
        'game.mob','game.skill','game.skill_extra','game.companion',
        'client.interface','client.game','game.quest','client.dungeons',
-       'client.options','client.forum','client.minimap','client.tooltip')
+       'client.options','client.forum','client.minimap','client.tooltip',
+       'client.cube','client.guild','game.shop_deco')
 MAX_JSON=2*1024*1024
 
 def allowed_path(path):
