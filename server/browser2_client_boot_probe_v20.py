@@ -236,7 +236,7 @@ def selftest():
                 with urllib.request.urlopen(address+'/__local__/v20') as r:d=json.load(r)
                 assert d['events'][0]['event']=='loaded'
                 assert 'phase_seen' in OBSERVER and 'globalThis.__loading' in OBSERVER
-    assert 'boot_caught' in OBSERVER and 'Reflect.apply(originalConsoleError' in OBSERVER
+                assert 'boot_caught' in OBSERVER and 'Reflect.apply(originalConsoleError' in OBSERVER
                 assert (root/'index.html').read_bytes()==original
             finally:server.shutdown();server.server_close()
         finally:
