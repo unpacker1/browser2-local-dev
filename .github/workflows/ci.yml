@@ -58,6 +58,8 @@ jobs:
         run: python server/browser2_client_boot_probe_v20.py selftest
       - name: V21 original locale overlay selftest
         run: python server/browser2_local_locale_sync_v21.py selftest
+      - name: V22 bounded world asset overlay / original priority selftest
+        run: python server/browser2_public_world_asset_sync_v22.py selftest
       - name: Build Termux update package
         if: matrix.python-version == '3.13'
         shell: bash
