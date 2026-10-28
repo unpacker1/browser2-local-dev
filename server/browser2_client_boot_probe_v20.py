@@ -209,6 +209,11 @@ def selftest():
                 with urllib.request.urlopen(address+'/__local__/v20') as r:d=json.load(r)
                 assert d['events'][0]['event']=='loaded'
                 assert 'phase_seen' in OBSERVER and 'globalThis.__loading' in OBSERVER
+    # Node is available in GitHub Actions. Validate injected JavaScript syntax without executing it.
+    if __import__('shutil').which('node'):
+        checked=subprocess.run(['node','--check','--input-type=commonjs'],
+            input=OBSERVER,text=True,capture_output=True,timeout=10)
+        assert checked.returncode==0, checked.stderr
                 assert (root/'index.html').read_bytes()==original
             finally:server.shutdown();server.server_close()
         finally:
