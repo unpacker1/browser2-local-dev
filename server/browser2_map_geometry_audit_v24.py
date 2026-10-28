@@ -146,7 +146,7 @@ def selftest():
     assert o['near_origin_objects_m']['within_5']==1
     assert o['near_origin_objects_m']['within_50']==2
     assert o['nearest_object_distance_m']==0
-    assert not geometry({'size_x':'wrong','size_y':4,'tile_m':256})['reason']!='map_dimensions_unverified'
+    assert geometry({'size_x':'wrong','size_y':4,'tile_m':256})['reason']=='map_dimensions_unverified'
     assert geometry(meta)['no_proven_spawn'] is True
     print('[SELFTEST OK] V24 original centered-world coordinate formula and metadata audit')
 
