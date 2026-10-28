@@ -135,11 +135,10 @@ def audit(root=ROOT,overlay=OVERLAY,db=DB,save=True):
     print('[KARAKTER]',{'maps':characters.get('by_map',{}),
         'zero_zero':characters.get('at_zero_zero')})
     print('[ORIJINAL BASLANGIC KAYDI]',first.get('explicit_spawn_anchors',[]))
-    print('[GUVELIK] Sadece okuma. Orijinal dosya/SQLite değiştirilmedi.')
+    print('[GUVENLIK] Sadece okuma. Orijinal dosya/SQLite değiştirilmedi.')
     return report
 
 def sync():
-    ROOT.mkdir(parents=True,exist_ok=True) if False else None
     if not v16.prev.audit(ROOT):raise SystemExit('[HATA] Orijinal oyun arşivi bulunamadı')
     fetcher=v16.Fetcher(ROOT,OVERLAY)
     d=v16.make_sync_report(fetcher,ROOT,VILLAGE_MAP,expand=60)
