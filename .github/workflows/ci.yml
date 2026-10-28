@@ -1,0 +1,70 @@
+name: Browser2 Local AUTH-GAME CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser2-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Python ${{ matrix.python-version }} / offline tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Ensure proprietary assets or private databases were not committed
+        shell: bash
+        run: |
+          python3 - <<'PY2'
+          import subprocess
+          paths=subprocess.check_output(['git','ls-files'],text=True).splitlines()
+          forbidden_ext={'.glb','.ktx2','.wasm','.pak','.sqlite3','.db','.har','.pcap','.p12','.pfx','.pem'}
+          forbidden_root=('public_assets/','YEREL_SUNUCU/','RAPORLAR/','LOGS/')
+          bad=[p for p in paths if p.startswith(forbidden_root) or any(p.lower().endswith(x) for x in forbidden_ext)]
+          if bad: raise SystemExit('Private or proprietary files in public repository: '+str(bad))
+          print('OK: only selected public-safe development files')
+          PY2
+      - name: Check Python syntax
+        run: python -m compileall -q server
+      - name: V14 AUTH + WebSocket selftest
+        run: python server/browser2_local_base_v14.py --selftest
+      - name: V15 boot manifest selftest
+        run: python server/browser2_local_stack_v15.py --selftest
+      - name: V16 map overlay / HTTP Range selftest
+        run: python server/browser2_local_map_sync_v16.py --selftest
+      - name: V17 trace selftest
+        run: python server/browser2_gercek_oyun_tani_v17.py selftest
+      - name: V18 auth-aligned launcher selftest
+        run: python server/browser2_baglanti_duzeltme_v18.py selftest
+      - name: Build Termux update package
+        if: matrix.python-version == '3.13'
+        shell: bash
+        run: |
+          mkdir -p dist/TESTLER
+          cp server/*.py dist/TESTLER/
+          cp termux/update_phone.sh dist/UPDATE_BROWSER2_FROM_GITHUB.sh
+          cd dist
+          zip -r -q ../browser2-termux-update.zip TESTLER UPDATE_BROWSER2_FROM_GITHUB.sh
+      - name: Upload Termux update artifact
+        if: matrix.python-version == '3.13'
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser2-termux-update
+          path: browser2-termux-update.zip
+          retention-days: 7
