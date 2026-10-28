@@ -23,13 +23,13 @@ import urllib.parse
 import urllib.request
 import browser2_http_route_audit_v19 as v19
 
-PORT=8904
-EVENTS={'loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed','boot_caught','boot_cause'}
-CATEGORIES={'none','webgpu','gpu_absent','shader','model','texture','terrain','map','auth','session','protocol','network','catalog','locale','resource','unknown','world','error_overlay','runtime_shape','map_catalog','asset_catalog','skills_catalog','catalog_other','catalog_parse','gpu_device_lost'}
+PORT=8905
+EVENTS={'loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed','boot_caught','boot_cause','boot_keyword'}
+CATEGORIES={'none','webgpu','gpu_absent','shader','model','texture','terrain','map','auth','session','protocol','network','catalog','locale','resource','unknown','world','error_overlay','runtime_shape','map_catalog','asset_catalog','skills_catalog','catalog_other','catalog_parse','gpu_device_lost','intro','incomplete','string','catalogs','ui','window','character','class','mobs','mob','items','item','skills','skill','effect','effects','animation','device','json','http','fetch','timeout','missing','malformed','empty','invalid','unavailable','unsupported','failed','parse','format','source','system','translation','registry','index','type','undefined','client','server','gateway','loading','asset','cache','not','found','request','collision','gpu','other'}
 STAGES={'boot','ready','check08','check20','check40','unknown','manifest','terrain_env','player','world'}
 OBSERVER=r"""(()=>{
 'use strict';
-const allowed=new Set(['loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed','boot_caught','boot_cause']);
+const allowed=new Set(['loaded','ready','checkpoint','script_error','promise_error','resource_error','ui_notice','phase_seen','boot_failed','world_ready','asset_failed','boot_caught','boot_cause','boot_keyword']);
 function kind(v){
  const m=String(v||'').toLowerCase().slice(0,500);
  for(const [k,r] of [
@@ -76,6 +76,12 @@ const diagnosticConsoleError=function(...args){
        /catalog/.test(msg)||/catalog/i.test(name)?'catalog_other':
        /device lost|gpu device lost/i.test(msg)?'gpu_device_lost':category;
     send('boot_cause',cause,phase);
+    // Only submit fixed keywords; never submit free-form error messages.
+    const allow=new Set(['intro','incomplete','string','catalogs','ui','window','character','class','mobs','mob','items','item','skills','skill','effect','effects','animation','device','json','http','fetch','timeout','missing','malformed','empty','invalid','unavailable','unsupported','failed','parse','format','source','system','translation','registry','index','type','undefined','client','server','gateway','loading','asset','cache','not','found','request','network','collision','world','map','model','gpu','catalog','other']);
+    const found=new Set((message+' '+name).toLowerCase().match(/[a-z]+/g)||[]);
+    let sent=0;
+    for(const word of allow)if(found.has(word)&&sent++<12)send('boot_keyword',word,phase);
+    if(!sent)send('boot_keyword','other',phase);
   }
  }catch{}
  return Reflect.apply(originalConsoleError,this,args);
@@ -136,7 +142,7 @@ def inject(html):
     return html[:m.end()]+b'<script src="/__local__/v20/observer.js"></script>'+html[m.end():]
 
 class Handler(v19.Handler):
-    server_version='Browser2Local/20.3'
+    server_version='Browser2Local/20.4'
     def do_GET(self):
         url=urllib.parse.urlsplit(self.path)
         if url.path=='/__local__/':
@@ -171,7 +177,7 @@ class Handler(v19.Handler):
                                 catalog_shape[key+'_array']=isinstance(value.get(key),list)
                 except (OSError,ValueError,UnicodeError):pass
             with self.server.boot_lock: gpu_reports=self.server.gpu_failure_reports
-            return self.json(200,{'version':'20.3','events':events,
+            return self.json(200,{'version':'20.4','events':events,
                 'failed_routes':errors,'launcher_events':dict(self.server.launcher_events),
                 'catalog_static_shape':catalog_shape,
                 'map_catalog_http_200':sum(v for (k,c),v in self.server.class_status.items() if k=='world_map_catalog' and c=='200'),
@@ -220,13 +226,13 @@ def fetch(port=PORT):
     try:
         with urllib.request.urlopen(f'http://127.0.0.1:{port}/__local__/v20',timeout=2) as r:
             d=json.load(r)
-        return d if d.get('version')=='20.3' else None
+        return d if d.get('version')=='20.4' else None
     except (OSError,ValueError):return None
 
 def report(port=PORT):
     d=fetch(port)
     if not d:raise SystemExit('[HATA] V20 calismiyor')
-    p=v19.v18.REPORTS/'browser2_v20_3_boot_hata_raporu.json'
+    p=v19.v18.REPORTS/'browser2_v20_4_boot_keyword_raporu.json'
     p.parent.mkdir(parents=True,exist_ok=True)
     p.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
     print('[RAPOR]',p)
@@ -240,6 +246,7 @@ def selftest():
     assert OLD_LAUNCH in v19.v18.CLIENT_HTML
     assert inject(b'<html><head></head><body>original</body></html>') is not None
     assert "boot_cause" in OBSERVER and 'gpu_device_lost' in CATEGORIES
+    assert "'boot_keyword'" in OBSERVER and "const allow=new Set" in OBSERVER
     # Node is available in GitHub Actions. Validate injected JavaScript syntax without executing it.
     if __import__('shutil').which('node'):
         checked=subprocess.run(['node','--check','--input-type=commonjs'],
@@ -275,7 +282,7 @@ def selftest():
         finally:
             if prior is None:os.environ.pop('BROWSER2_PRIVATE_DB',None)
             else:os.environ['BROWSER2_PRIVATE_DB']=prior
-    print('[SELFTEST OK] V20.3 catalog/GPU cause audit, original disk files unmodified, no sensitive messages')
+    print('[SELFTEST OK] V20.4 fixed-word boot cause audit; original files unchanged; no raw errors')
 
 def serve(port):
     v19.v18.v17.prepare_env()
