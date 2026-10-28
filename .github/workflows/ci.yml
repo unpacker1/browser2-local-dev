@@ -68,6 +68,8 @@ jobs:
         if: matrix.python-version == '3.13'
         continue-on-error: true
         run: python server/browser2_map_geometry_audit_v24.py fetch-public
+      - name: V25 isolated first village QA (no original DB changes) selftest
+        run: python server/browser2_yongan_isolated_qa_v25.py selftest
       - name: Build Termux update package
         if: matrix.python-version == '3.13'
         shell: bash
