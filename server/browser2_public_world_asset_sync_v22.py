@@ -28,8 +28,8 @@ import urllib.request
 
 import browser2_local_locale_sync_v21 as v21
 
-VERSION="22.0"
-PORT=8907
+VERSION="22.1"
+PORT=8908
 ROOT=v21.ROOT
 BASE=v21.BASE
 REPORTS=v21.REPORTS
@@ -45,12 +45,20 @@ CATALOGS=(
     '/assets/catalogs/mob-collision.json',
     '/assets/catalogs/mobs-motion-index.json',
     '/assets/catalogs/guild-building-models.json',
+    '/assets/catalogs/items/items.json',
+    '/assets/catalogs/items/item-meshes.json',
+    '/assets/catalogs/items/item-visuals.canonical.json',
+    '/assets/catalogs/combat-effects.json',
+    '/assets/catalogs/fly.json',
+    '/assets/catalogs/combos.json',
+    '/assets/catalogs/mob-skill-effects.json',
+    '/assets/catalogs/granny-pick-bounds-ranges.json',
 )
 RELATIVE=re.compile(r'^/assets/[A-Za-z0-9_./@-]{1,240}$')
 VALID_BY_FOLDER={
-    'catalogs':{'.json'},
-    'scenery':{'.glb'},
-    'trees':{'.glb'},
+    'catalogs':{'.json','.png','.webp','.jpg','.jpeg','.tsv','.bin'},
+    'scenery':{'.glb','.webp','.png','.ktx2','.jpg','.jpeg'},
+    'trees':{'.glb','.webp','.png','.ktx2','.jpg','.jpeg'},
     'effects':{'.webp','.png','.ktx2'},
     'maps':{'.png','.webp','.jpg','.jpeg','.glb'},
 }
@@ -66,7 +74,6 @@ def allowed_path(path):
     if cat not in VALID_BY_FOLDER:return False
     ext=Path(path).suffix.lower()
     if ext not in VALID_BY_FOLDER[cat]:return False
-    if cat=='catalogs' and len(segments)!=3:return False
     return True
 
 def validate(path):
@@ -173,12 +180,24 @@ class PublicAssetFetcher:
             return result
 
 class Handler(v21.Handler):
-    server_version='Browser2Local/22'
+    server_version='Browser2Local/22.1'
+    def send_response(self,code,message=None):
+        # Only exact allowlisted public static asset pathnames, without query or cookies.
+        if self.command in ('GET','HEAD') and code>=400:
+            path=urllib.parse.unquote(urllib.parse.urlsplit(self.path).path)
+            if allowed_path(path):
+                with self.server.asset_error_lock:
+                    key=(int(code),path)
+                    if key in self.server.asset_errors or len(self.server.asset_errors)<160:
+                        self.server.asset_errors[key]+=1
+        return super().send_response(code,message)
     def do_GET(self):
         p=urllib.parse.urlsplit(self.path).path
         if p=='/__local__/v22':
             return self.json(200,{'version':VERSION,
                 'world_asset_cache':self.server.world_assets.status(),
+                'asset_http_errors':[{'status':status,'path':path,'requests':n}
+                    for (status,path),n in self.server.asset_errors.most_common(160)],
                 'catalogs':[dict(path=path,status=local_asset(
                     self.server.root,self.server.world_assets.overlay,path)[1]) for path in BOOTSTRAP_ASSETS],
                 'original_files_modified':False,
@@ -199,13 +218,15 @@ class Server(v21.Server):
         world_overlay=OVERLAY,world_fetcher=None):
         super().__init__(bind,root,state,fetcher,locale_overlay)
         self.world_assets=world_fetcher or PublicAssetFetcher(root,world_overlay)
+        self.asset_error_lock=threading.Lock()
+        self.asset_errors=Counter()
         self.RequestHandlerClass=Handler
 
 def catalog_sync():
     fetcher=PublicAssetFetcher()
     results=[fetcher.fetch(path) for path in BOOTSTRAP_ASSETS]
     REPORTS.mkdir(parents=True,exist_ok=True)
-    p=REPORTS/'browser2_v22_catalog_sync.json'
+    p=REPORTS/'browser2_v22_1_catalog_sync.json'
     p.write_text(json.dumps({'version':VERSION,'results':results,
         'original_files_modified':False},indent=2,ensure_ascii=False),encoding='utf-8')
     print('[KATALOG SENKRON]',p)
@@ -224,15 +245,16 @@ def report(port):
     except (OSError,ValueError):
         raise SystemExit('[HATA] V22 sunucusuna ulasilamadi')
     REPORTS.mkdir(parents=True,exist_ok=True)
-    path=REPORTS/'browser2_v22_world_asset_raporu.json'
+    path=REPORTS/'browser2_v22_1_world_asset_raporu.json'
     path.write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
     print('[WORLD]',path)
     print('[KATALOG]',[(x['path'],x['status']) for x in d['catalogs']])
-    print('[CACHE]',d['world_asset_cache'])
+    print('[CACHE]',d['world_asset_cache']['statuses'])
+    print('[HTTP HATALARI]',d['asset_http_errors'][:25])
     # Preserve prior V20.4 report instead of overwriting it.
     boot=v21.v20.fetch(port)
     if boot:
-        boot_path=REPORTS/'browser2_v22_boot_raporu.json'
+        boot_path=REPORTS/'browser2_v22_1_boot_raporu.json'
         boot_path.write_text(json.dumps(boot,ensure_ascii=False,indent=2),encoding='utf-8')
         print('[BOOT]',boot_path)
         print('[YUKLEME]',boot.get('events',[]))
@@ -243,6 +265,16 @@ def selftest():
     assert allowed_path(SPECIAL)
     assert BOOTSTRAP_ASSETS[-1]==SPECIAL
     assert allowed_path('/assets/scenery/buildings/tree_101.glb')
+    assert allowed_path('/assets/scenery/textures/stone01.webp')
+    assert allowed_path('/assets/trees/textures/tree01.webp')
+    assert allowed_path('/assets/catalogs/items/items.json')
+    assert allowed_path('/assets/catalogs/ui/img/game/dungeon_info/back.png')
+    # A client cancelling an asset transfer after HTTP headers is not HTTP 500.
+    class ClientAbort:
+        path='/downloaded.glb'
+        def static(self,p):raise BrokenPipeError()
+        def err(self,e):raise AssertionError('client disconnect should not become HTTP 500')
+    v21.v20.v19.v18.v17.v16.base.Handler.do_GET(ClientAbort())
     assert allowed_path('/assets/effects/spells/fire.webp')
     for path in ('/assets/../../local.sqlite3','/assets/catalogs/../../auth.json',
         '/assets/world/../local.sqlite3','/auth/login',
@@ -291,7 +323,7 @@ def selftest():
         finally:
             if previous is None:os.environ.pop('BROWSER2_PRIVATE_DB',None)
             else:os.environ['BROWSER2_PRIVATE_DB']=previous
-    print('[SELFTEST OK] V22 verified public assets, bounded download, original priority, HTTP serving')
+    print('[SELFTEST OK] V22.1 widened asset types, cancelled downloads, public-path errors, original priority')
 
 def serve(port):
     v21.v20.v19.v18.v17.prepare_env()
