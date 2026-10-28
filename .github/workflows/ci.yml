@@ -52,6 +52,8 @@ jobs:
         run: python server/browser2_gercek_oyun_tani_v17.py selftest
       - name: V18 auth-aligned launcher selftest
         run: python server/browser2_baglanti_duzeltme_v18.py selftest
+      - name: V19 safe HTTP 401/404 route diagnostic selftest
+        run: python server/browser2_http_route_audit_v19.py selftest
       - name: Build Termux update package
         if: matrix.python-version == '3.13'
         shell: bash
