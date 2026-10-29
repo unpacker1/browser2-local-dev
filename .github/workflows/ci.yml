@@ -78,6 +78,8 @@ jobs:
         run: bash -n termux/*.sh
       - name: V27 read-only original pack routes and safe 404 diagnostic selftest
         run: python server/browser2_v28_pack_compat_v27.py selftest
+      - name: V29 isolated original A1 village visual QA selftest
+        run: python server/browser2_v29_isolated_village_qa.py selftest
       - name: Build Termux update package
         if: matrix.python-version == '3.13'
         shell: bash
