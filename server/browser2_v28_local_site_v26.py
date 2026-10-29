@@ -401,12 +401,34 @@ def selftest():
 
 def main():
     ap=argparse.ArgumentParser(description='Browser2 V26 offline V28 launcher and local website')
-    ap.add_argument('action',nargs='?',default='audit',choices=('selftest','diagnose','audit','serve'))
+    ap.add_argument('action',nargs='?',default='audit',choices=('selftest','diagnose','audit','serve','report'))
     ap.add_argument('--root',type=Path)
     ap.add_argument('--port',type=int,default=PORT)
     args=ap.parse_args()
     if args.action=='selftest':
         selftest();return
+    if args.action=='report':
+        if not 1024<=args.port<=65535:raise SystemExit('Invalid port')
+        base_url=f'http://127.0.0.1:{args.port}'
+        for name in ('v26','v19','v18'):
+            try:
+                with urllib.request.urlopen(base_url+'/__local__/'+name,timeout=4) as resp:
+                    data=json.load(resp)
+            except (OSError,ValueError) as exc:
+                print('[REPORT MISSING]',name,type(exc).__name__);continue
+            if name=='v26':
+                print('[PACKS]',{key:data.get(key) for key in (
+                    'manifestPackPaths','manifestPackAliasesPresent','packAliasHits','packAliasMissing',
+                    'bootManifest','mapRegistry')})
+            elif name=='v19':
+                for item in data.get('error_routes',[])[:35]:
+                    print('[HTTP ERROR]',item.get('requests'),item.get('http_status'),
+                          item.get('method'),item.get('route_shape'))
+            else:
+                print('[GAME]',{key:value for key,value in data.get('backend_metrics',{}).items()
+                                 if key.startswith(('game_join','world_ws','world_initial'))})
+                print('[LAUNCH]',data.get('launcher_events',{}))
+        return
     if args.action=='diagnose':
         data=archive_diagnostics(args.root or os.environ.get('BROWSER2_ORIGINAL_ROOT'))
         print('[V28 ROOT DIAGNOSIS]',json.dumps(data,ensure_ascii=False,indent=2))
