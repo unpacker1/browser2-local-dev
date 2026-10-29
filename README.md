@@ -135,3 +135,18 @@ old process already using port 8899; stop that process manually before
 running V26. Check `BROWSER2_BAGIMSIZ/LOGS/browser2_v26_site.log` on failure.
 This is **not** a public website deployment and does not prove that a
 character entered the world.
+
+### If V26 stops at [ARCHIVE NOT FOUND] or [ARCHIVE NOT READY]
+
+Run the read-only diagnostic (no Downloads deletion, no re-download):
+
+```sh
+cd ~/browser2-local-dev
+python3 server/browser2_v28_local_site_v26.py diagnose
+```
+
+The output distinguishes **folder absent** from **index present but missing AUTH/GAME/bridge JS**. It checks both
+`BROWSER2_SIFIRDAN_TAM_SITE` and `BROWSER2_BAGIMSIZ/public_assets`, with limited nested-folder discovery.
+A known custom folder can be passed with `--root /absolute/path/to/archive-parent-or-browser2.to`.
+The `audit` command now prints the same file-level diagnostic on failure.
+The original archive is never altered or downloaded automatically.
