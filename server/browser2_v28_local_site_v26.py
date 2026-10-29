@@ -18,6 +18,7 @@ from pathlib import Path
 import browser2_local_base_v14 as base
 import browser2_baglanti_duzeltme_v18 as v18
 import browser2_gercek_oyun_tani_v17 as v17
+import browser2_http_route_audit_v19 as v19
 
 PORT=8899
 SNAP='_BROWSER2_PUBLIC_API_V28'
@@ -202,7 +203,28 @@ def snapshot_data(root, service, section, params):
             'nextCursor':next_cursor,'snapshotOnly':True,'partialArchive':incomplete,
             **({'totalCapped':False} if service=='forum' else {})}
 
-class Handler(v18.Handler):
+def original_manifest_pack_paths(root):
+    """Only paths present in original manifest are eligible for .pack.bin aliasing.
+
+    Previous Chrome request audit observed logical .pack URLs while the user's
+    downloaded original archive stores these same files as .pack.bin.
+    Serving the original bytes at the logical URL is a transport compatibility
+    layer, not a modification to the original game files or protocol.
+    """
+    manifest=read_json(Path(root)/'assets/packs/boot-manifest.json')
+    result=set()
+    def visit(node):
+        if isinstance(node,dict):
+            for val in node.values():visit(val)
+        elif isinstance(node,list):
+            for val in node:visit(val)
+        elif isinstance(node,str) and re.fullmatch(r'[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\.pack',node):
+            if all(segment not in ('.','..') for segment in node.split('/')):
+                result.add('/assets/packs/'+node)
+    if isinstance(manifest,(dict,list)):visit(manifest)
+    return frozenset(result)
+
+class Handler(v19.Handler):
     server_version='Browser2Local/26'
     def do_GET(self):
         url=urllib.parse.urlsplit(self.path)
@@ -219,7 +241,13 @@ class Handler(v18.Handler):
                  'wikiSnapshot':(snapshot_root(root)/'wiki/v1/index.json').is_file(),
                  'forumSnapshot':(snapshot_root(root)/'forum/v1/index.json').is_file(),
                  'leaderboard':'local_sqlite_only','game':'partial_independent',
-                 'originalAssetsModified':False})
+                 'originalAssetsModified':False,
+                 'manifestPackPaths':len(self.server.manifest_pack_paths),
+                 'manifestPackAliasesPresent':sum(
+                    (root/(p.lstrip('/')+'.bin')).is_file()
+                    for p in self.server.manifest_pack_paths),
+                 'packAliasHits':self.server.metrics['manifest_pack_alias_served'],
+                 'packAliasMissing':self.server.metrics['manifest_pack_alias_missing']})
         if p=='/__local__/leaderboard':
             with self.server.store.lock,self.server.store._db() as db:
                 rows=db.execute('SELECT name,class_id,empire,level FROM characters ORDER BY level DESC,name ASC LIMIT 100').fetchall()
@@ -238,9 +266,22 @@ class Handler(v18.Handler):
                                  {'Cache-Control':'no-store','X-Local-Archive':'read-only-snapshot'})
         return super().do_GET()
 
-class Server(v18.Server):
+    def static(self,p):
+        # The manifest is the allowlist: no arbitrary disk paths, no guessed
+        # pack names and no credential/session traffic is touched.
+        if p in self.server.manifest_pack_paths:
+            root=(self.server.root/'assets/packs').resolve()
+            candidate=(root/(p[len('/assets/packs/'):] + '.bin')).resolve()
+            if candidate.is_relative_to(root) and candidate.is_file():
+                self.server.metrics['manifest_pack_alias_served']+=1
+                return v17.v16.serve_file(self,candidate)
+            self.server.metrics['manifest_pack_alias_missing']+=1
+        return super().static(p)
+
+class Server(v19.Server):
     def __init__(self,bind,root,state,fetcher):
         super().__init__(bind,root,state,fetcher)
+        self.manifest_pack_paths=original_manifest_pack_paths(root)
         self.RequestHandlerClass=Handler
 
 def make_server(root,port=PORT,state=None):
@@ -271,6 +312,18 @@ def selftest():
             f=root/SNAP/sub;f.parent.mkdir(parents=True,exist_ok=True)
             f.write_text(json.dumps(data),encoding='utf-8')
         assert all(base.check_sources(root).values())
+        # Exact Chrome-observed logical pack URL versus the archive's .pack.bin:
+        # the original file bytes must pass through untouched, with Range/HEAD.
+        pack_payload=b'PACK'+bytes(range(100))
+        pack_root=root/'assets/packs'
+        pack_root.mkdir()
+        pack_name='core-08d8acfd75.pack'
+        (pack_root/(pack_name+'.bin')).write_bytes(pack_payload)
+        (pack_root/'boot-manifest.json').write_text(
+            json.dumps({'version':2,'packs':{'core':pack_name}}))
+        assert original_manifest_pack_paths(root)==frozenset({
+            '/assets/packs/'+pack_name})
+
         assert resolve_original(root)==root.resolve()
         # Parent archive paths must resolve nested original site/browser2.to.
         nested=Path(td)/'BROWSER2_SIFIRDAN_TAM_SITE/site/browser2.to'
@@ -301,6 +354,34 @@ def selftest():
                       '/forum/v1/posts?limit=1','/__local__/leaderboard'):
                 with urllib.request.urlopen(host+p,timeout=3) as r:
                     assert r.status==200,(p,r.status)
+
+            pack_url='/assets/packs/'+pack_name
+            with urllib.request.urlopen(host+pack_url,timeout=3) as resp:
+                assert resp.status==200 and resp.read()==pack_payload
+            with urllib.request.urlopen(
+                urllib.request.Request(host+pack_url,method='HEAD'),timeout=3) as resp:
+                assert resp.status==200 and int(resp.headers['Content-Length'])==len(pack_payload)
+            with urllib.request.urlopen(
+                urllib.request.Request(host+pack_url,headers={'Range':'bytes=4-13'}),timeout=3) as resp:
+                assert resp.status==206 and resp.read()==pack_payload[4:14]
+            # The original archive is unmodified; direct storage URL also works.
+            with urllib.request.urlopen(host+pack_url+'.bin',timeout=3) as resp:
+                assert resp.read()==pack_payload
+            assert (pack_root/(pack_name+'.bin')).read_bytes()==pack_payload
+            # A plausible but non-manifest pack name must not be exposed.
+            try:
+                urllib.request.urlopen(host+'/assets/packs/other-0000000000.pack',timeout=3)
+            except urllib.error.HTTPError as ex:
+                assert ex.code==404
+            else:raise AssertionError('unlisted pack unexpectedly served')
+            with urllib.request.urlopen(host+'/__local__/v19',timeout=3) as resp:
+                status=json.load(resp)
+                assert status['version']=='19.0'
+                assert status['error_routes']
+            with urllib.request.urlopen(host+'/__local__/v26',timeout=3) as resp:
+                status=json.load(resp)
+                assert status['manifestPackAliasesPresent']==1
+                assert status['packAliasHits']>=3
             with urllib.request.urlopen(host+'/wiki/v1/items?limit=1') as r:
                 obj=json.load(r);assert obj['nextCursor'] and obj['items'][0]['name']=='Sword'
             with urllib.request.urlopen(host+'/wiki/v1/items?limit=1&cursor='+obj['nextCursor']) as r:
