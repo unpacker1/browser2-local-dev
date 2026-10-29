@@ -282,7 +282,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if p=='/__local__/health':
                 with self.server.active_lock:n=self.server.active
-                self.json(200,{'server':'Browser2 LOCAL V14','proto':PROTO,'active_world_clients':n,'original_static_root':str(self.server.root),'static_found':(self.server.root/'assets/auth-C9as2-Nt.js').is_file(),'counts':dict(self.server.metrics),'limitations':'Partial private GAME recreation; not original backend'})
+                self.json(200,{'server':'Browser2 LOCAL V14','proto':PROTO,'active_world_clients':n,'original_static_root':str(self.server.root),'static_found':'auth' in discover_original_bundles(self.server.root),'counts':dict(self.server.metrics),'limitations':'Partial private GAME recreation; not original backend'})
                 return
             if p=='/health':
                 self.json(200,{'protocolVersion':PROTO,'maintenance':None});return
@@ -466,12 +466,48 @@ class Handler(BaseHTTPRequestHandler):
             if now-last_save>=3:
                 store.save_pos(ch);last_save=now
 
+def discover_original_bundles(root):
+    """Read-only lookup of the active client assets, never a guess based on old hashes.
+
+    The index must explicitly reference exactly one AUTH and one GAME module.
+    The bridge is a supporting local file (or a unique import from GAME).
+    This prevents accidentally mixing two separate Browser2 builds.
+    """
+    root=Path(root)
+    try:
+        html=(root/'index.html').read_text(encoding='utf-8')
+    except (OSError,UnicodeError):
+        return {}
+    assets=root/'assets'
+    found={}
+    for kind in ('auth','game'):
+        references=set(re.findall(
+            rf'''(?:src|href)\s*=\s*["'](/assets/{kind}-[A-Za-z0-9_-]+\.js)["']''',
+            html
+        ))
+        if len(references)==1:
+            fn=next(iter(references)).split('/')[-1]
+            if (assets/fn).is_file():
+                found[kind]=fn
+    bridges=sorted(assets.glob('world-bridge-*.js')) if assets.is_dir() else []
+    if len(bridges)==1 and bridges[0].is_file():
+        found['world_bridge']=bridges[0].name
+    elif len(bridges)>1 and 'game' in found:
+        # Only accept an unambiguous reference to the bridge in the active GAME.
+        try:
+            game=(assets/found['game']).read_text(encoding='utf-8')
+            matches=[p for p in bridges if p.name in game]
+            if len(matches)==1:found['world_bridge']=matches[0].name
+        except (OSError,UnicodeError):
+            pass
+    return found
+
 def check_sources(root):
-    source=(root/'assets')
-    checks={'index':(root/'index.html').is_file()}
-    for fn in ('auth-C9as2-Nt.js','game-mpPBZnwM.js','world-bridge-BplQPdB8.js'):
-        checks[fn]=(source/fn).is_file()
-    return checks
+    bundles=discover_original_bundles(root)
+    return {'index':(Path(root)/'index.html').is_file(),
+            'auth_module':'auth' in bundles,
+            'game_module':'game' in bundles,
+            'world_bridge':'world_bridge' in bundles}
 
 def selftest():
     import tempfile,urllib.request,urllib.error
@@ -479,6 +515,29 @@ def selftest():
     assert len(make_self(0,0,100,100,0x10001))==32
     assert snapshot(1,{'x':0.,'z':0.,'name':'Tester','classId':'warrior','gender':'m','empire':1},0x10001,True,(0,0))[0]==1
     assert password_verify('testpassword',password_hash('testpassword'))
+    # Independent, read-only V28 bundle discovery. No legacy fixed hashes.
+    with tempfile.TemporaryDirectory() as t:
+        client=Path(t); (client/'assets').mkdir()
+        (client/'index.html').write_text(
+            '<script type="module" src="/assets/game-V28abc.js"></script>'
+            '<link rel="modulepreload" href="/assets/auth-V28def.js">',
+            encoding='utf-8')
+        for name in ('game-V28abc.js','auth-V28def.js','world-bridge-V28xyz.js'):
+            (client/'assets'/name).write_text('/* fixture */',encoding='utf-8')
+        assert discover_original_bundles(client)=={
+            'auth':'auth-V28def.js','game':'game-V28abc.js',
+            'world_bridge':'world-bridge-V28xyz.js'}
+        assert all(check_sources(client).values())
+        (client/'assets/auth-V28def.js').unlink()
+        assert not check_sources(client)['auth_module']
+        (client/'assets/auth-SECOND.js').write_text('/* fixture */')
+        assert not check_sources(client)['auth_module']
+        # Conflicting index references must not silently select a different AUTH.
+        (client/'index.html').write_text(
+            '<script src="/assets/game-V28abc.js"></script>'
+            '<link href="/assets/auth-V28def.js">'
+            '<link href="/assets/auth-SECOND.js">')
+        assert not check_sources(client)['auth_module']
     with tempfile.TemporaryDirectory() as t:
         root=Path(t)/'assetsroot';root.mkdir();(root/'index.html').write_text('<title>Original test fixture</title>');(root/'assets').mkdir();(root/'assets'/'test.ktx2').write_bytes(b'k'*100)
         store=Store(Path(t)/'local.sqlite3')
