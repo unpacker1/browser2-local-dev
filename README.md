@@ -31,3 +31,41 @@ The phone's existing working directory is `~/storage/downloads/BROWSER2_BAGIMSIZ
 ## Security / distribution
 
 Use `127.0.0.1` only. Never expose these prototype HTTP/WS endpoints to the internet. Do not put original game data, private account files or credentials into a public repository or Actions artifacts. Run personal login/3D tests only on your own phone; GitHub Actions runs software tests, not a live authenticated game.
+
+## V28 AUTH/client entry compatibility (local-only)
+
+The local launcher now discovers the active \`auth-*.js\` and \`game-*.js\` modules
+from the **unmodified** original \`index.html\`; it also requires a compatible
+local \`world-bridge-*.js\` file. It does not hardcode historical V14–V27
+bundle hashes. An incomplete/ambiguous module set is rejected (HTTP 503
+on the generated local launcher) instead of silently mixing builds.
+
+The V18 generated page imports the original AUTH module and calls its
+\`a7.worldServerFor(mapId)\` export, checks that the returned WebSocket URL
+has the same origin as the local server, and uses the local SQLite
+session created by the independent /__local__/bootstrap endpoint.
+It **never** logs or copies any remote account credentials or joins a remote
+server. The original V28 AUTH/GAME client bundles themselves are never patched.
+
+On Termux (after you put an **authorized** original client archive at
+\`~/storage/downloads/BROWSER2_BAGIMSIZ/public_assets/browser2.to\`):
+
+\`\`\`sh
+python server/browser2_local_base_v14.py --selftest
+python server/browser2_baglanti_duzeltme_v18.py selftest
+python server/browser2_local_base_v14.py --audit
+bash termux/update_phone.sh
+python ~/storage/downloads/BROWSER2_BAGIMSIZ/TESTLER/browser2_baglanti_duzeltme_v18.py serve --port 8899
+\`\`\`
+
+Visit \`http://127.0.0.1:8899/__local__/\` and inspect the safe, aggregated
+status at \`http://127.0.0.1:8899/__local__/v18\`.
+If a previous copy of the V18 server is already running, stop *that*
+process before launching this version; its \`start\` command will not
+silently replace a running service.
+
+**Scope:** This change addresses V28 entry-point compatibility only.
+It does not create the original private AUTH/GAME backend, replace its DB,
+populate mobs or NPCs, correct the original first-village spawn, remove
+duplicate character renderers, or guarantee mobile FPS. Server-side
+WebSocket JoinAccepted is **not** evidence of a complete gameplay session.
