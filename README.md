@@ -319,3 +319,55 @@ this QA does not claim to restore village inhabitants or quests.
 No old SQLite file is read for characters, migrated, overwritten, or
 deleted. Old ports (8899, 8917, 8921) are unaffected. All original
 assets/JS/WASM/pack files stay unchanged and private.
+
+
+## V30: genuine first-village terrain textures, no fake image conversions
+
+The Oct 29 Chrome trace on the isolated A1 map (port 8931) showed
+15 missing `/assets/maps/metin2_map_a1/terrain_layers/*.webp` layers
+and `asset_failed` at `terrain_env`.
+The V28 private archive contains a corresponding set of KTX2 textures
+under `assets/world/textures/terrain_layers/metin2_map_a1/`, but **KTX2
+bytes are NOT WebP and must not be served with a WebP filename/MIME**.
+
+Two identical-format original files actually exist under their
+world-texture paths: `stone03.webp` and `tile02.webp`. V30 serves only
+those directly corresponding real WebP files at the two requested
+terrain-layer WebP URLs. It also serves any already validated original
+public WebP that exists in the separate V22 on-phone overlay.
+
+Test without touching the original V29 QA or normal player database:
+
+```sh
+cd ~/browser2-local-dev
+git switch main && git pull --ff-only origin main
+python3 server/browser2_v30_terrain_asset_qa.py selftest
+python3 server/browser2_v30_terrain_asset_qa.py audit
+python3 server/browser2_v30_terrain_asset_qa.py start --port 8935
+```
+
+Then open `http://127.0.0.1:8935/__local__/?b2diag=1` and observe
+first-village rendering. Collect:
+
+```sh
+python3 server/browser2_v30_terrain_asset_qa.py report --port 8935
+```
+
+**Optional, explicit internet sync**: a separate action attempts
+only 15 exact public WebP URLs from the original `https://browser2.to`
+host with the existing V22 same-origin HTTPS and WebP magic/size checks;
+original archive assets are never overwritten. If origin responds 404,
+the missing files remain missing; **no KTX2->WebP conversion or guessed
+image data takes place**.
+
+```sh
+python3 server/browser2_v30_terrain_asset_qa.py sync
+```
+
+When sync downloads valid assets into the V22 overlay, V30 can use them
+on the next page load without restarting; response bytes come from the
+real WebP files only. V30 uses new private QA SQLite:
+`~/BROWSER2_LOCAL_SERVER_DATA/QA_V30_A1/local.sqlite3`.
+Ports 8899, 8917, 8921 and 8931 are not modified or stopped.
+The previous 173 static UI/icon 404s and first-village ground height,
+NPC/mob logic and character overlay are **not** claimed fixed.
