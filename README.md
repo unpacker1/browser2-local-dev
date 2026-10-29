@@ -150,3 +150,37 @@ The output distinguishes **folder absent** from **index present but missing AUTH
 A known custom folder can be passed with `--root /absolute/path/to/archive-parent-or-browser2.to`.
 The `audit` command now prints the same file-level diagnostic on failure.
 The original archive is never altered or downloaded automatically.
+
+## V27: pack-file compatibility and loading-stage diagnostics
+
+The original V28 `boot-manifest.json` references `core-08d8acfd75.pack`
+and other `.pack` names. Some extracted original files are retained as
+`.pack.bin` files. V27 maps **only the exact original manifest-listed**
+pack paths to the matching **existing** `.pack.bin` files; it provides
+normal binary HTTP and byte ranges without copying, rewriting, replacing,
+or generating game content. An existing original URL/file always wins.
+
+It also tracks local HTTP 404 *categories*, and a bounded list of
+missing static **pathnames only**, stripped of query strings.
+No credentials, tokens, WebSocket payloads, account data, or IPs are stored.
+This provides evidence for boot/asset failures without guessing game data.
+
+On the phone:
+
+```sh
+cd ~/browser2-local-dev
+git switch main && git pull --ff-only origin main
+BROWSER2_LOCAL_PORT=8900 bash termux/start_v26.sh
+```
+
+We use port **8900** while an older 8899 listener may still be running.
+Visit `http://127.0.0.1:8900/__local__/` and after one play attempt read
+`http://127.0.0.1:8900/__local__/v27`.
+The response reports manifest/core-file availability, missing static
+paths by group, and whether a WebSocket/JoinAccepted ever occurred.
+If manifest-listed packs are absent, the service reports them as missing
+rather than fabricating replacements. If a 404 is a different route class,
+investigate that path class rather than editing original JS.
+
+Passing offline tests only verifies local compatibility and endpoints;
+it does not prove gameplay or recreate the original proprietary GAME.
