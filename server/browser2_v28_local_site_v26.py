@@ -45,27 +45,92 @@ if(!x.items?.length)el('p','Arşivde gösterilebilir eşya bulunamadı.',area);
 })();
 </script></html>'''
 
-def archive_candidates():
+def archive_candidates(requested=None):
+    """Bounded directory-only discovery around known Browser2/Download locations.
+
+    This does NOT scan device storage recursively and never reads proprietary
+    asset bytes. It accepts the game root itself or a parent archive folder.
+    """
     home=Path.home()
-    return [
-        home/'storage/downloads/BROWSER2_SIFIRDAN_TAM_SITE/site/browser2.to',
-        home/'BROWSER2_SIFIRDAN_TAM_SITE/site/browser2.to',
-        home/'storage/downloads/BROWSER2_BAGIMSIZ/public_assets/browser2.to',
-    ]
+    downloads=home/'storage/downloads'
+    anchors=([Path(requested).expanduser()] if requested is not None else [
+        downloads/'BROWSER2_SIFIRDAN_TAM_SITE',
+        home/'BROWSER2_SIFIRDAN_TAM_SITE',
+        downloads/'BROWSER2_BAGIMSIZ/public_assets',
+        downloads/'BROWSER2_BAGIMSIZ',
+        home/'BROWSER2_BAGIMSIZ/public_assets',
+    ])
+    # Additional Browser2-named directories one level below Downloads only.
+    if requested is None and downloads.is_dir():
+        try:
+            anchors.extend(sorted(p for p in downloads.iterdir()
+                                  if p.is_dir() and 'browser2' in p.name.casefold())[:20])
+        except OSError:
+            pass
+    seen=set()
+    candidates=[]
+    for anchor in anchors:
+        queue=[(anchor,0)]
+        visited=0
+        while queue and visited<80:
+            item,depth=queue.pop(0)
+            try:real=item.resolve()
+            except (OSError,RuntimeError):
+                continue
+            if real in seen or not real.is_dir():
+                continue
+            seen.add(real);visited+=1
+            # Inspect directory entries (names only); never walk assets/trees.
+            if (real/'index.html').is_file() or depth<=1:
+                candidates.append(real)
+            if depth>=4:continue
+            try:
+                children=sorted(p for p in real.iterdir()
+                      if p.is_dir() and (
+                        p.name.casefold() in ('site','browser2.to','public_assets',
+                            'original','client','www','dist','build') or
+                        'browser2' in p.name.casefold()))
+            except (OSError,PermissionError):
+                continue
+            for child in children[:40]:
+                queue.append((child,depth+1))
+    return candidates
+
+def archive_diagnostics(requested=None):
+    reports=[]
+    for path in archive_candidates(requested):
+        assets=path/'assets'
+        try:
+            actual={kind:sorted(x.name for x in assets.glob(kind+'-*.js'))[:6]
+                    for kind in ('auth','game','world-bridge')}
+        except OSError:
+            actual={}
+        checks=base.check_sources(path)
+        if (path/'index.html').is_file() or assets.is_dir():
+            reports.append({'root':str(path),'checks':checks,
+               'assetFiles':actual,
+               'manifest':(assets/'packs/boot-manifest.json').is_file(),
+               'mapRegistry':(assets/'maps/_registry.json').is_file(),
+               'snapshot':(path/SNAP/'wiki/v1/index.json').is_file()})
+    return reports
 
 def resolve_original(requested=None):
     raw=requested or os.environ.get('BROWSER2_ORIGINAL_ROOT')
-    candidates=[Path(raw).expanduser()] if raw else archive_candidates()
+    candidates=archive_candidates(raw)
     valid=[]
-    for candidate in candidates:
-        path=candidate.resolve()
+    for path in candidates:
         checks=base.check_sources(path)
         if all(checks.values()):
             completeness=int((path/'assets/packs/boot-manifest.json').is_file())+int((path/'assets/maps/_registry.json').is_file())
             valid.append((completeness,path))
     if not valid:
-        where=str(Path(raw).expanduser()) if raw else ', '.join(map(str,candidates))
-        raise ValueError('V28 original root not found or client modules incomplete: '+where)
+        reports=archive_diagnostics(raw)
+        if reports:
+            problems=[(x['root'],[key for key,ok in x['checks'].items() if not ok])
+                       for x in reports[:8]]
+            raise ValueError('Client roots exist but required files are missing or build references mismatch: '+str(problems))
+        raise ValueError('No extracted V28 index.html + assets/ root found under the known Browser2 folders. '
+                         'Run: python server/browser2_v28_local_site_v26.py diagnose')
     valid.sort(key=lambda v:-v[0])
     return valid[0][1]
 
@@ -206,6 +271,22 @@ def selftest():
             f=root/SNAP/sub;f.parent.mkdir(parents=True,exist_ok=True)
             f.write_text(json.dumps(data),encoding='utf-8')
         assert all(base.check_sources(root).values())
+        assert resolve_original(root)==root.resolve()
+        # Parent archive paths must resolve nested original site/browser2.to.
+        nested=Path(td)/'BROWSER2_SIFIRDAN_TAM_SITE/site/browser2.to'
+        nested.parent.mkdir(parents=True)
+        nested.symlink_to(root,target_is_directory=True)
+        assert resolve_original(Path(td)/'BROWSER2_SIFIRDAN_TAM_SITE')==root.resolve()
+        checks=archive_diagnostics(root)
+        assert checks and all(checks[0]['checks'].values())
+        # A missing active AUTH is described, not misreported as a missing directory.
+        (assets/'auth-TEST.js').unlink()
+        broken=archive_diagnostics(root)
+        assert not broken[0]['checks']['auth_module']
+        try:resolve_original(root);raise AssertionError('missing auth must reject')
+        except ValueError as exc:assert 'auth_module' in str(exc)
+        (assets/'auth-TEST.js').write_text('/* test */')
+
         assert snapshot_data(root,'wiki','items',{'limit':['1']})['nextCursor']
         assert len(snapshot_data(root,'wiki','items',{'category':['weapon']})['items'])==1
         assert snapshot_data(root,'forum','posts',{})['partialArchive']
@@ -239,15 +320,24 @@ def selftest():
 
 def main():
     ap=argparse.ArgumentParser(description='Browser2 V26 offline V28 launcher and local website')
-    ap.add_argument('action',nargs='?',default='audit',choices=('selftest','audit','serve'))
+    ap.add_argument('action',nargs='?',default='audit',choices=('selftest','diagnose','audit','serve'))
     ap.add_argument('--root',type=Path)
     ap.add_argument('--port',type=int,default=PORT)
     args=ap.parse_args()
     if args.action=='selftest':
         selftest();return
+    if args.action=='diagnose':
+        data=archive_diagnostics(args.root or os.environ.get('BROWSER2_ORIGINAL_ROOT'))
+        print('[V28 ROOT DIAGNOSIS]',json.dumps(data,ensure_ascii=False,indent=2))
+        if not data:
+            print('[HINT] Extracted client folder (index.html and assets/) not found. Original archive is NOT downloaded by this script.')
+        return
     if not 1024<=args.port<=65535:raise SystemExit('Invalid port')
     try:root=resolve_original(args.root)
-    except ValueError as exc:raise SystemExit('[ARCHIVE NOT FOUND] '+str(exc))
+    except ValueError as exc:
+        print('[V28 ROOT DIAGNOSIS]',json.dumps(archive_diagnostics(args.root or os.environ.get('BROWSER2_ORIGINAL_ROOT')),
+                     ensure_ascii=False,indent=2))
+        raise SystemExit('[ARCHIVE NOT READY] '+str(exc))
     print('[V26 ARCHIVE AUDIT]',json.dumps(audit(root),ensure_ascii=False),flush=True)
     if args.action!='serve':return
     v17.prepare_env()
