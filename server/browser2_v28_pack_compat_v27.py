@@ -382,13 +382,35 @@ def selftest():
 
 def main():
     ap=argparse.ArgumentParser(description='Read-only V28 original pack compatibility and loading diagnostics')
-    ap.add_argument('action',nargs='?',default='audit',choices=('selftest','audit','serve'))
+    ap.add_argument('action',nargs='?',default='audit',choices=('selftest','audit','serve','report'))
     ap.add_argument('--root',type=Path)
     ap.add_argument('--port',type=int,default=PORT)
     args=ap.parse_args()
     if args.action=='selftest':
         selftest();return
     if not (1024<=args.port<=65535):raise SystemExit('Port must be 1024..65535')
+    if args.action=='report':
+        uri='http://127.0.0.1:'+str(args.port)
+        for endpoint in ('v28','v27','v19'):
+            try:
+                with urllib.request.urlopen(uri+'/__local__/'+endpoint,timeout=4) as response:
+                    d=json.load(response)
+            except (OSError,ValueError) as exc:
+                print('[REPORT UNAVAILABLE]',endpoint,type(exc).__name__)
+                continue
+            if endpoint=='v28':
+                print('[LOCALES]',json.dumps(d.get('localeSources',{}),ensure_ascii=False))
+                print('[CATALOG MOBS]',d.get('catalogMobsStaticPresent'),d.get('catalogMobsBackendRoute'))
+                print('[BROWSER BOOT]',json.dumps(d.get('browserBootEvents',[]),ensure_ascii=False))
+                print('[GAME]',json.dumps(d.get('backendMetrics',{}),ensure_ascii=False))
+            elif endpoint=='v27':
+                print('[PACKS]',{k:d.get('packAudit',{}).get(k) for k in
+                                  ('manifestPackCount','availablePackCount','missingPackCount')})
+                print('[404]',d.get('http404Categories',{}))
+                print('[WORLD]',{k:d.get(k) for k in ('wsOpened','joinAccepted','joinRejected','initialStateSent')})
+            else:
+                print('[HTTP ERRORS]',json.dumps(d.get('error_routes',[])[:18],ensure_ascii=False))
+        return
     try:root=v26.resolve_original(args.root)
     except ValueError as e:raise SystemExit('[ARCHIVE NOT READY] '+str(e))
     pack=OriginalPackLookup(root)
