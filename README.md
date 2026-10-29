@@ -272,3 +272,50 @@ python3 ~/browser2-local-dev/server/browser2_local_locale_sync_v21.py sync --lan
 If the public host returns HTTP 404 or denies requests, the sync report
 will say so and no replacement data will be invented. This network step
 is optional and is never executed by GitHub Actions.
+
+
+## V29 isolated original first-village (A1) visual QA
+
+The previous phone test on port 8921 succeeded at AUTH/WS/JoinAccepted:
+`world_ws_opened=1`, `game_join_accepted=1`, `world_initial_state_sent=1`,
+`world_ready` was observed, but the character appeared in the old test
+`map_a2` at `(0,0)` with empty terrain/large missing geometry.
+The old local server's bootstrap hardcodes that **unverified** map/position;
+the UI screenshots do **not** prove an official player spawn.
+
+V29 provides a **separate** private SQLite QA account and original A1
+(`metin2_map_a1`) map catalog based on the real map's
+`size_x * tile_m` / `size_y * tile_m`, without changing original
+assets or canonical local character DB. The experimental `(0,0)` is
+the map's geometric center, NOT an authenticated village spawn.
+
+Run a read-only check and start the **separate port 8931**:
+
+```sh
+cd ~/browser2-local-dev
+git switch main && git pull --ff-only origin main
+python3 server/browser2_v29_isolated_village_qa.py selftest
+python3 server/browser2_v29_isolated_village_qa.py audit
+python3 server/browser2_v29_isolated_village_qa.py start --port 8931
+```
+
+Open `http://127.0.0.1:8931/__local__/?b2diag=1`. After entering
+the world, obtain the read-only QA report:
+
+```sh
+python3 server/browser2_v29_isolated_village_qa.py report --port 8931
+```
+
+Compare the terrain, camera and character view against the previous
+`map_a2` test at 8921. If the map is still visibly broken, do not
+move the main player or guess original map collision coordinates.
+The 191 original static-image 404s in the phone run also remain
+unresolved; inspect their safe names at `/__local__/v27`.
+The prototype currently has **no native NPC/mob world simulation**, so
+this QA does not claim to restore village inhabitants or quests.
+
+**Privacy:** The QA account database is
+`~/BROWSER2_LOCAL_SERVER_DATA/QA_V29_A1/local.sqlite3` (private).
+No old SQLite file is read for characters, migrated, overwritten, or
+deleted. Old ports (8899, 8917, 8921) are unaffected. All original
+assets/JS/WASM/pack files stay unchanged and private.
