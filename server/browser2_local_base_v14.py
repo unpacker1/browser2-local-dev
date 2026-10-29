@@ -481,10 +481,20 @@ def discover_original_bundles(root):
     assets=root/'assets'
     found={}
     for kind in ('auth','game'):
-        references=set(re.findall(
-            rf'''(?:src|href)\s*=\s*["'](/assets/{kind}-[A-Za-z0-9_-]+\.js)["']''',
-            html
-        ))
+        if kind=='game':
+            # In V28, game-hud-*.js is a modulepreload dependency, NOT the
+            # main entry. Only <script src="/assets/game-*.js"> is an entry.
+            # Matching all hrefs treated game-hud as a second GAME and blocked
+            # startup even though game-JWXJHqds.js was present.
+            references=set(re.findall(
+                r'''<script\b[^>]*\bsrc\s*=\s*["'](/assets/game-[A-Za-z0-9_-]+\.js)["']''',
+                html,flags=re.IGNORECASE
+            ))
+        else:
+            references=set(re.findall(
+                rf'''(?:src|href)\s*=\s*["'](/assets/{kind}-[A-Za-z0-9_-]+\.js)["']''',
+                html
+            ))
         if len(references)==1:
             fn=next(iter(references)).split('/')[-1]
             if (assets/fn).is_file():
@@ -528,6 +538,25 @@ def selftest():
             'auth':'auth-V28def.js','game':'game-V28abc.js',
             'world_bridge':'world-bridge-V28xyz.js'}
         assert all(check_sources(client).values())
+        # Real V28 structure: GAME script entry + game-hud modulepreload.
+        # The preloaded HUD must NOT be interpreted as a second GAME entry.
+        (client/'assets/game-hud-OTHER.js').write_text('/* preload */')
+        (client/'index.html').write_text(
+            '<script type="module" crossorigin src="/assets/game-V28abc.js"></script>'
+            '<link rel="modulepreload" href="/assets/auth-V28def.js">'
+            '<link rel="modulepreload" href="/assets/game-hud-OTHER.js">')
+        assert check_sources(client)['game_module']
+        assert discover_original_bundles(client)['game']=='game-V28abc.js'
+        # Two real GAME script entries are ambiguous and should be rejected.
+        (client/'index.html').write_text(
+            '<script src="/assets/game-V28abc.js"></script>'
+            '<script src="/assets/game-SECOND.js"></script>'
+            '<link rel="modulepreload" href="/assets/auth-V28def.js">')
+        assert not check_sources(client)['game_module']
+        (client/'index.html').write_text(
+            '<script src="/assets/game-V28abc.js"></script>'
+            '<link href="/assets/auth-V28def.js">')
+
         (client/'assets/auth-V28def.js').unlink()
         assert not check_sources(client)['auth_module']
         (client/'assets/auth-SECOND.js').write_text('/* fixture */')
