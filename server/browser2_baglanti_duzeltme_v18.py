@@ -10,7 +10,7 @@ import browser2_gercek_oyun_tani_v17 as v17
 BASE=Path.home()/'storage/downloads/BROWSER2_BAGIMSIZ'
 REPORTS=BASE/'RAPORLAR';LOGS=BASE/'LOGS';ORIGINAL=BASE/'public_assets/browser2.to'
 PORT=8899
-CLIENT_HTML='<!doctype html><html lang="tr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Browser2 Yerel V18</title><style>body{background:#101824;color:#f2eee4;font:16px system-ui;padding:18px;max-width:660px;margin:auto}button{font:inherit;background:#27c49f;color:#091e1d;padding:14px;border:0;border-radius:9px;font-weight:bold}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#1f3041;padding:12px;border-radius:8px}small{color:#b7c8d8}</style><h2>Browser2 — Orijinal istemci / Yerel AUTH + GAME</h2><p>Giriş adresini orijinal AUTH modülünün <code>worldServerFor</code> fonksiyonundan hesaplar. Oyun JS dosyalarını değiştirmez.</p><button id="b">Yerel dünyaya gir</button><p><a href="/__local__/status" style="color:#9cdeff">Bağlantı durumu</a></p><pre id="s">Hazır. Yerel karakter kullanılır; gerçek site hesabı kullanılmaz.</pre><small>Yerel GAME sunucusu kısmi uyumluluk uygulamasıdır, tam oynanış garanti edilmez.</small><script type="module">\nconst button=document.getElementById(\'b\'), status=document.getElementById(\'s\');\nasync function note(ev){try{await fetch(\'/__local__/v18/event\',{method:\'POST\',headers:{\'content-type\':\'application/json\'},body:JSON.stringify({event:ev})})}catch{}}\nbutton.onclick=async()=>{button.disabled=true;status.textContent=\'Yerel oturum hazırlanıyor...\';try{\n  const csrf=document.cookie.split(\'; \').find(s=>s.startsWith(\'b2csrf=\'))?.split(\'=\')[1]||\'\';\n  const r=await fetch(\'/__local__/bootstrap\',{method:\'POST\',headers:{\'x-b2-csrf\':csrf,\'content-type\':\'application/json\'},body:\'{}\'});\n  if(!r.ok)throw Error(\'Yerel oturum isteği HTTP \'+r.status);\n  const j=await r.json(),c=j.character;\n  if(!c?.id||!c?.mapId||!j.session?.token)throw Error(\'Yerel karakter/oturum alanları eksik\');\n  localStorage.setItem(\'ymir.session.v1\',JSON.stringify(j.session));\n  let auth;try{auth=await import(\'/assets/auth-C9as2-Nt.js\')}catch(e){await note(\'auth_import_error\');throw Error(\'Orijinal AUTH modülü yüklenemedi: \'+e.message)}\n  const fn=auth?.a7?.worldServerFor;\n  if(typeof fn!==\'function\'){await note(\'auth_export_missing\');throw Error(\'Orijinal AUTH worldServerFor bulunamadı\')}\n  const server=fn(c.mapId);const u=new URL(server);\n  if(!/^wss?:$/.test(u.protocol)||u.host!==location.host||!/^\\/world\\/[A-Za-z0-9_@-]+$/.test(u.pathname))throw Error(\'Orijinal AUTH sunucu adresi beklenen yerel kökende değil\');\n  const cls=(c.classId===\'ninja\'?\'assassin\':c.classId)+\'_\'+(c.gender===\'w\'?\'w\':\'m\');\n  const q=new URLSearchParams({screen:\'game\',name:c.id,map:c.mapId,class:cls,empire:String(c.empire),server:u.href});\n  status.textContent=\'Orijinal AUTH sunucu yönlendirmesi doğrulandı. Oyun ekranı açılıyor...\';\n  await note(\'launch_using_original_auth\');location.assign(\'/?\'+q.toString());\n}catch(e){await note(\'launch_error\');status.textContent=\'Hata: \'+e.message;button.disabled=false}}\n</script></html>'
+CLIENT_HTML='<!doctype html><html lang="tr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Browser2 Yerel V18</title><style>body{background:#101824;color:#f2eee4;font:16px system-ui;padding:18px;max-width:660px;margin:auto}button{font:inherit;background:#27c49f;color:#091e1d;padding:14px;border:0;border-radius:9px;font-weight:bold}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#1f3041;padding:12px;border-radius:8px}small{color:#b7c8d8}</style><h2>Browser2 — Orijinal istemci / Yerel AUTH + GAME</h2><p>Giriş adresini orijinal AUTH modülünün <code>worldServerFor</code> fonksiyonundan hesaplar. Oyun JS dosyalarını değiştirmez.</p><button id="b">Yerel dünyaya gir</button><p><a href="/__local__/status" style="color:#9cdeff">Bağlantı durumu</a></p><pre id="s">Hazır. Yerel karakter kullanılır; gerçek site hesabı kullanılmaz.</pre><small>Yerel GAME sunucusu kısmi uyumluluk uygulamasıdır, tam oynanış garanti edilmez.</small><script type="module">\nconst button=document.getElementById(\'b\'), status=document.getElementById(\'s\');\nasync function note(ev){try{await fetch(\'/__local__/v18/event\',{method:\'POST\',headers:{\'content-type\':\'application/json\'},body:JSON.stringify({event:ev})})}catch{}}\nbutton.onclick=async()=>{button.disabled=true;status.textContent=\'Yerel oturum hazırlanıyor...\';try{\n  const csrf=document.cookie.split(\'; \').find(s=>s.startsWith(\'b2csrf=\'))?.split(\'=\')[1]||\'\';\n  const r=await fetch(\'/__local__/bootstrap\',{method:\'POST\',headers:{\'x-b2-csrf\':csrf,\'content-type\':\'application/json\'},body:\'{}\'});\n  if(!r.ok)throw Error(\'Yerel oturum isteği HTTP \'+r.status);\n  const j=await r.json(),c=j.character;\n  if(!c?.id||!c?.mapId||!j.session?.token)throw Error(\'Yerel karakter/oturum alanları eksik\');\n  localStorage.setItem(\'ymir.session.v1\',JSON.stringify(j.session));\n  let auth;try{auth=await import(\'__ORIGINAL_AUTH_MODULE__\')}catch(e){await note(\'auth_import_error\');throw Error(\'Orijinal AUTH modülü yüklenemedi: \'+e.message)}\n  const fn=auth?.a7?.worldServerFor;\n  if(typeof fn!==\'function\'){await note(\'auth_export_missing\');throw Error(\'Orijinal AUTH worldServerFor bulunamadı\')}\n  const server=fn(c.mapId);const u=new URL(server);\n  if(!/^wss?:$/.test(u.protocol)||u.host!==location.host||!/^\\/world\\/[A-Za-z0-9_@-]+$/.test(u.pathname))throw Error(\'Orijinal AUTH sunucu adresi beklenen yerel kökende değil\');\n  const cls=(c.classId===\'ninja\'?\'assassin\':c.classId)+\'_\'+(c.gender===\'w\'?\'w\':\'m\');\n  const q=new URLSearchParams({screen:\'game\',name:c.id,map:c.mapId,class:cls,empire:String(c.empire),server:u.href});\n  status.textContent=\'Orijinal AUTH sunucu yönlendirmesi doğrulandı. Oyun ekranı açılıyor...\';\n  await note(\'launch_using_original_auth\');location.assign(\'/?\'+q.toString());\n}catch(e){await note(\'launch_error\');status.textContent=\'Hata: \'+e.message;button.disabled=false}}\n</script></html>'
 EVENTS={'auth_import_error','auth_export_missing','launch_using_original_auth','launch_error'}
 class Handler(v17.Handler):
     server_version='Browser2Local/18'
@@ -22,9 +22,19 @@ class Handler(v17.Handler):
     def do_GET(self):
         p=urllib.parse.urlsplit(self.path).path
         if p=='/__local__/':
+            # The active AUTH bundle is determined by the unmodified original
+            # index.html, not a historical hash. Substitution only affects
+            # this locally generated launcher response.
+            bundles=v17.v16.base.discover_original_bundles(self.server.root)
+            auth=bundles.get('auth')
+            if not auth or 'game' not in bundles or 'world_bridge' not in bundles:
+                return self.sendbody(503,b'Original client module set incomplete or ambiguous',
+                                     'text/plain; charset=utf-8',{'Cache-Control':'no-store'})
             csrf=secrets.token_urlsafe(18)
-            return self.sendbody(200,CLIENT_HTML.encode('utf-8'),'text/html; charset=utf-8',{
+            page=CLIENT_HTML.replace('__ORIGINAL_AUTH_MODULE__','/assets/'+auth)
+            return self.sendbody(200,page.encode('utf-8'),'text/html; charset=utf-8',{
               'Set-Cookie':f'b2csrf={csrf}; Path=/__local__/; SameSite=Strict',
+              'Cache-Control':'no-store',
               'Content-Security-Policy':"default-src 'none'; script-src 'self' 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'"})
         if p in ('/__local__/status','/__local__/v18'):
             public={'version':'18.0','source':'original client unchanged','status_by_route':[
@@ -79,12 +89,18 @@ def report(port=PORT):
 def selftest():
     import tempfile
     assert 'worldServerFor' in CLIENT_HTML and 'ymir.session.v1' in CLIENT_HTML
-    assert 'auth-C9as2-Nt.js' in CLIENT_HTML
+    assert '__ORIGINAL_AUTH_MODULE__' in CLIENT_HTML and 'auth-C9as2-Nt.js' not in CLIENT_HTML
     assert 'launch_using_original_auth' in EVENTS
     with tempfile.TemporaryDirectory() as td:
         root=Path(td)/'public';(root/'assets').mkdir(parents=True)
-        (root/'index.html').write_text('<html><body>test</body></html>')
-        (root/'assets/auth-C9as2-Nt.js').write_text('export const a7={};')
+        (root/'index.html').write_text(
+            '<script type="module" src="/assets/game-JWXJHqds.js"></script>'
+            '<link rel="modulepreload" href="/assets/auth-JZfCWxzf.js">',
+            encoding='utf-8')
+        for name in ('game-JWXJHqds.js','world-bridge-DdvsLS6v.js'):
+            (root/'assets'/name).write_text('// fixture',encoding='utf-8')
+        (root/'assets/auth-JZfCWxzf.js').write_text('export const a7={};',encoding='utf-8')
+        assert all(v17.v16.base.check_sources(root).values())
         envdb=Path(td)/'private/local.sqlite3';v17.os.environ['BROWSER2_PRIVATE_DB']=str(envdb)
         f=v17.v16.Fetcher(root,Path(td)/'overlay')
         s=Server(('127.0.0.1',0),root,Path(td)/'state',f)
@@ -92,7 +108,18 @@ def selftest():
         try:
             host=f'http://127.0.0.1:{s.server_port}'
             with urllib.request.urlopen(host+'/__local__/') as r:
-                assert r.status==200 and b'worldServerFor' in r.read()
+                page=r.read()
+                assert r.status==200 and b'worldServerFor' in page
+                assert b'/assets/auth-JZfCWxzf.js' in page
+                assert b'__ORIGINAL_AUTH_MODULE__' not in page
+            # A missing active module fails clearly and does not fall back to an old build.
+            (root/'assets/auth-JZfCWxzf.js').unlink()
+            try:
+                urllib.request.urlopen(host+'/__local__/',timeout=3)
+                raise AssertionError('missing original AUTH should not launch')
+            except urllib.error.HTTPError as exc:
+                assert exc.code==503
+            (root/'assets/auth-JZfCWxzf.js').write_text('export const a7={};')
             with urllib.request.urlopen(host+'/__local__/v18') as r:
                 d=json.load(r);assert d['version']=='18.0'
             with urllib.request.urlopen(host+'/') as r:assert r.status==200
