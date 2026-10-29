@@ -74,6 +74,8 @@ jobs:
         run: python server/browser2_village_preview_v24.py selftest
       - name: V26 V28 archive discovery and local website snapshots selftest
         run: python server/browser2_v28_local_site_v26.py selftest
+      - name: Termux launchers bash syntax check
+        run: bash -n termux/*.sh
       - name: Build Termux update package
         if: matrix.python-version == '3.13'
         shell: bash

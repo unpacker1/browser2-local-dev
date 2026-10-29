@@ -115,3 +115,23 @@ this repository, a public Actions artifact, or GitHub Pages.
 GitHub Actions is a short-lived test/build environment and cannot host a
 persistent playable AUTH/GAME server. Keep the prototype bound to
 `127.0.0.1` unless separately engineered for secure deployment.
+
+### One-command Termux start / local HTTP verification
+
+From a checkout of the public **server-only** repository:
+
+```sh
+cd ~/browser2-local-dev
+git switch main
+git pull --ff-only origin main
+bash termux/start_v26.sh
+```
+
+The script verifies V26 offline tests, locates the PRIVATE original archive
+in the phone, backs up/copies only independently developed Python sources,
+starts the localhost-only server in the background, and checks HTTP 200
+for the launcher, wiki, forum and local rankings. It does **not** kill an
+old process already using port 8899; stop that process manually before
+running V26. Check `BROWSER2_BAGIMSIZ/LOGS/browser2_v26_site.log` on failure.
+This is **not** a public website deployment and does not prove that a
+character entered the world.
