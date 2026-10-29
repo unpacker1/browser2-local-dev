@@ -23,6 +23,10 @@ import browser2_local_base_v14 as base
 import browser2_local_map_sync_v16 as v16
 import browser2_gercek_oyun_tani_v17 as v17
 import browser2_v28_local_site_v26 as v26
+import browser2_client_boot_probe_v20 as v20
+import browser2_local_locale_sync_v21 as v21
+import http.cookies
+import secrets
 
 PORT=8899
 PACK_BASE='/assets/packs/'
@@ -30,6 +34,9 @@ SAFE_PACK_RE=re.compile(r'[A-Za-z0-9_./@-]{1,220}\.pack')
 SAFE_STATIC_RE=re.compile(r'/[A-Za-z0-9_./@+-]{1,240}\.(?:pack|bin|glb|ktx2|wasm|json|js|webp|png|jpg|mp3|ogg|wav)')
 SAFE_PREFIXES=('/assets/','/packs/','/catalogs/','/maps/','/models/','/characters/','/textures/','/effects/','/sounds/','/ui/','/animations/')
 MAX_SAMPLES=100
+BOOT_EVENT_LIMIT=200
+OBSERVED_EN_FILES=('client.net_ui','game.mob','game.companion','game.world',
+                   'game.item','system','game.skill','game.skill_extra')
 
 
 def canonical_pack_values(raw):
@@ -134,7 +141,58 @@ class Handler(v26.Handler):
         return super().send_response(code,message)
 
     def do_GET(self):
-        p=urllib.parse.urlsplit(self.path).path
+        parsed=urllib.parse.urlsplit(self.path)
+        p=parsed.path
+        if p=='/__local__/v20/observer.js':
+            return self.sendbody(200,v20.OBSERVER.encode('utf-8'),'text/javascript; charset=utf-8',
+                                 {'Cache-Control':'no-store'})
+        if p=='/__local__/v28':
+            locale={}
+            for item in OBSERVED_EN_FILES:
+                locale[item]=v21.local_source(
+                    self.server.root,self.server.locale_overlay,
+                    '/locales/en/'+item+'.json')[1]
+            with self.server.boot_lock:
+                boot=[{'event':event,'category':cat,'stage':stage,'count':n}
+                      for (event,cat,stage),n in self.server.boot_events.most_common(70)]
+            return self.json(200,{
+                'version':'28.0-local-diagnostics',
+                'localeSources':locale,
+                'catalogMobsStaticPresent':(self.server.root/'assets/catalogs/mobs.json').is_file(),
+                'catalogMobsBackendRoute':'not_verified',
+                'browserBootEvents':boot,
+                'bootObserverOptIn':True,
+                'packAudit':self.server.packs.report(),
+                'backendMetrics':{key:count for key,count in self.server.metrics.items()
+                                  if key.startswith(('world_ws','game_join','world_initial'))},
+                'originalAssetsModified':False,
+                'notice':'Only fixed event categories; no request queries, headers, cookies or secrets stored'})
+        if p=='/__local__/' and urllib.parse.parse_qs(parsed.query).get('b2diag')==['1']:
+            # Modify only the locally generated launcher's HTTP response.
+            # The original AUTH, GAME and HTML files on disk remain untouched.
+            bundles=base.discover_original_bundles(self.server.root)
+            if not all(x in bundles for x in ('auth','game','world_bridge')):
+                return self.json(503,{'error':'Original V28 bundle set incomplete'})
+            old="location.assign('/?'+q.toString());"
+            launch=v26.v18.CLIENT_HTML
+            if launch.count(old)!=1:
+                return self.json(503,{'error':'Diagnostic launcher signature unavailable'})
+            launch=launch.replace('__ORIGINAL_AUTH_MODULE__','/assets/'+bundles['auth'])
+            launch=launch.replace(old,"q.set('b2diag','1');"+old)
+            csrf=secrets.token_urlsafe(18)
+            return self.sendbody(200,launch.encode('utf-8'),'text/html; charset=utf-8',{
+                'Set-Cookie':f'b2csrf={csrf}; Path=/__local__/; SameSite=Strict',
+                'Cache-Control':'no-store',
+                'Content-Security-Policy':"default-src 'none'; script-src 'self' 'unsafe-inline'; connect-src 'self'; style-src 'unsafe-inline'"})
+        if p=='/' and urllib.parse.parse_qs(parsed.query).get('b2diag')==['1']:
+            index=self.server.root/'index.html'
+            if index.is_file():
+                # Optional in-memory observer from V20; it records event labels,
+                # never messages or raw network packets.
+                html=v20.inject(index.read_bytes())
+                if html is not None:
+                    return self.sendbody(200,html,'text/html; charset=utf-8',
+                                         {'Cache-Control':'no-store'})
         if p=='/__local__/v27':
             with self.server.missing_lock:
                 classes=dict(self.server.missing_classes)
@@ -158,7 +216,34 @@ class Handler(v26.Handler):
             return
         return super().do_GET()
 
+    def do_POST(self):
+        if urllib.parse.urlsplit(self.path).path!='/__local__/v20/event':
+            return super().do_POST()
+        try:
+            self.require_origin()
+            length=int(self.headers.get('Content-Length','0'))
+            if not 1<=length<=200:raise ValueError('bad event length')
+            if self.headers.get('Content-Type','').split(';')[0].strip().lower()!='application/json':
+                raise ValueError('must be JSON')
+            payload=json.loads(self.rfile.read(length))
+            if not isinstance(payload,dict):raise ValueError('bad event')
+            ev,category,stage=(payload.get('event'),payload.get('category'),payload.get('stage'))
+            if ev not in v20.EVENTS or category not in v20.CATEGORIES or stage not in v20.STAGES:
+                raise ValueError('invalid fixed label')
+            with self.server.boot_lock:
+                if sum(self.server.boot_events.values())<BOOT_EVENT_LIMIT:
+                    self.server.boot_events[ev,category,stage]+=1
+            return self.json(200,{'ok':True})
+        except (ValueError,TypeError,json.JSONDecodeError,base.Error):
+            return self.json(400,{'error':'Invalid diagnostic event'})
+
     def static(self,p):
+        if v21.allowed_path(p):
+            # Genuine locale cache from previous V21 sync, never synthesized.
+            path,kind=v21.local_source(self.server.root,self.server.locale_overlay,p)
+            if path is not None and kind=='overlay_present':
+                self.server.metrics['verified_locale_overlay_hits']+=1
+                return v16.serve_file(self,path)
         # Keep original path priority. If it exists, serve the original
         # path normally (including its Range response).
         direct=(self.server.root/p.lstrip('/')).resolve()
@@ -178,6 +263,9 @@ class Server(v26.Server):
         self.missing_lock=threading.RLock()
         self.missing_classes=collections.Counter()
         self.missing_paths=collections.Counter()
+        self.locale_overlay=v21.OVERLAY
+        self.boot_events=collections.Counter()
+        self.boot_lock=threading.Lock()
         self.RequestHandlerClass=Handler
 
 
@@ -201,8 +289,8 @@ def selftest():
         assets=root/'assets'
         assets.mkdir(parents=True)
         (root/'index.html').write_text(
-            '<script src="/assets/game-TEST.js"></script>'
-            '<link href="/assets/auth-TEST.js">')
+            '<html><head><script src="/assets/game-TEST.js"></script>'
+            '<link href="/assets/auth-TEST.js"></head><body>Original fixture</body></html>')
         for name in ('game-TEST.js','auth-TEST.js','world-bridge-TEST.js'):
             (assets/name).write_text('/* fixture only */')
         packdir=assets/'packs'
@@ -224,6 +312,11 @@ def selftest():
         assert lookup.file_for_request('/assets/packs/fake.pack') is None
         assert lookup.file_for_request('/assets/packs/../private.pack') is None
         srv=make_server(root,0,path/'private')
+        # Separate fake locale overlay, isolated from the user's private archive.
+        srv.locale_overlay=path/'verified-locale-cache'
+        fixture_locale=srv.locale_overlay/'locales/en/client.net_ui.json'
+        fixture_locale.parent.mkdir(parents=True)
+        fixture_locale.write_text('{"message":"verified original fixture"}')
         th=threading.Thread(target=srv.serve_forever,daemon=True)
         th.start()
         url=f'http://127.0.0.1:{srv.server_port}'
@@ -234,6 +327,36 @@ def selftest():
                              '/assets/packs/core-08d8acfd75.pack.bin'):
                 with urllib.request.urlopen(url+req_path,timeout=3) as r:
                     assert r.status==200 and r.read()==core
+            # Debug is opt-in and injected into *HTTP response* only.
+            with urllib.request.urlopen(url+'/__local__/?b2diag=1') as r:
+                page=r.read()
+                assert b"q.set('b2diag','1')" in page
+                assert b'/assets/auth-TEST.js' in page
+            with urllib.request.urlopen(url+'/?b2diag=1') as r:
+                page=r.read()
+                assert b'/__local__/v20/observer.js' in page
+                assert (root/'index.html').read_bytes()!=page
+            with urllib.request.urlopen(url+'/__local__/v20/observer.js') as r:
+                assert b'boot_caught' in r.read()
+            with urllib.request.urlopen(url+'/locales/en/client.net_ui.json') as r:
+                assert json.load(r)['message']=='verified original fixture'
+            with urllib.request.urlopen(url+'/__local__/v28') as r:
+                d=json.load(r)
+                assert d['localeSources']['client.net_ui']=='overlay_present'
+                assert d['localeSources']['game.mob']=='missing'
+                assert d['catalogMobsBackendRoute']=='not_verified'
+            event=json.dumps({'event':'boot_caught','category':'catalog','stage':'manifest'}).encode()
+            reqdiag=urllib.request.Request(url+'/__local__/v20/event',
+                method='POST',data=event,headers={'Content-Type':'application/json','Origin':url})
+            with urllib.request.urlopen(reqdiag) as r:
+                assert json.load(r)['ok']
+            with urllib.request.urlopen(url+'/__local__/v28') as r:
+                d=json.load(r)
+                assert any(x['event']=='boot_caught' and x['category']=='catalog'
+                           for x in d['browserBootEvents'])
+            # No payload values or original files copied into the server report.
+            assert fixture_locale.read_text()=='{"message":"verified original fixture"}'
+            assert b'/__local__/v20/observer.js' not in (root/'index.html').read_bytes()
             req=urllib.request.Request(url+'/assets/packs/core-08d8acfd75.pack',
                                        headers={'Range':'bytes=2-7'})
             with urllib.request.urlopen(req,timeout=3) as r:
@@ -254,18 +377,40 @@ def selftest():
         finally:
             srv.shutdown()
             srv.server_close()
-    print('[SELFTEST OK] V27 manifest-only core pack aliases, byte-range, 404 categories, no token/query logging')
+    print('[SELFTEST OK] V28 manifest aliases, V21 original locale cache, opt-in V20 browser boot observer and sanitized telemetry')
 
 
 def main():
     ap=argparse.ArgumentParser(description='Read-only V28 original pack compatibility and loading diagnostics')
-    ap.add_argument('action',nargs='?',default='audit',choices=('selftest','audit','serve'))
+    ap.add_argument('action',nargs='?',default='audit',choices=('selftest','audit','serve','report'))
     ap.add_argument('--root',type=Path)
     ap.add_argument('--port',type=int,default=PORT)
     args=ap.parse_args()
     if args.action=='selftest':
         selftest();return
     if not (1024<=args.port<=65535):raise SystemExit('Port must be 1024..65535')
+    if args.action=='report':
+        uri='http://127.0.0.1:'+str(args.port)
+        for endpoint in ('v28','v27','v19'):
+            try:
+                with urllib.request.urlopen(uri+'/__local__/'+endpoint,timeout=4) as response:
+                    d=json.load(response)
+            except (OSError,ValueError) as exc:
+                print('[REPORT UNAVAILABLE]',endpoint,type(exc).__name__)
+                continue
+            if endpoint=='v28':
+                print('[LOCALES]',json.dumps(d.get('localeSources',{}),ensure_ascii=False))
+                print('[CATALOG MOBS]',d.get('catalogMobsStaticPresent'),d.get('catalogMobsBackendRoute'))
+                print('[BROWSER BOOT]',json.dumps(d.get('browserBootEvents',[]),ensure_ascii=False))
+                print('[GAME]',json.dumps(d.get('backendMetrics',{}),ensure_ascii=False))
+            elif endpoint=='v27':
+                print('[PACKS]',{k:d.get('packAudit',{}).get(k) for k in
+                                  ('manifestPackCount','availablePackCount','missingPackCount')})
+                print('[404]',d.get('http404Categories',{}))
+                print('[WORLD]',{k:d.get(k) for k in ('wsOpened','joinAccepted','joinRejected','initialStateSent')})
+            else:
+                print('[HTTP ERRORS]',json.dumps(d.get('error_routes',[])[:18],ensure_ascii=False))
+        return
     try:root=v26.resolve_original(args.root)
     except ValueError as e:raise SystemExit('[ARCHIVE NOT READY] '+str(e))
     pack=OriginalPackLookup(root)
