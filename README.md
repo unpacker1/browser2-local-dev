@@ -184,3 +184,39 @@ investigate that path class rather than editing original JS.
 
 Passing offline tests only verifies local compatibility and endpoints;
 it does not prove gameplay or recreate the original proprietary GAME.
+
+
+## V28 Chrome capture: manifest `.pack` vs archived `.pack.bin`
+
+The captured original V28 asset flow requests logical pack URLs from
+`/assets/packs/boot-manifest.json` (including `core-08d8acfd75.pack`),
+whereas the private Android archive stores the pack bytes as
+`core-08d8acfd75.pack.bin` and similarly for map `world-*.pack` and
+`mobs-*.pack`. V26's localhost server now serves **the identical archived
+bytes** at the manifest's logical `.pack` URL, but **only** for exact names
+listed in the original boot manifest. Byte ranges (HTTP 206) and HEAD are
+supported. Original archived files remain untouched; no proprietary content
+is pushed into the public repository or CI.
+
+For a clean, separate phone test, leave the old port 8899 service alone:
+
+```sh
+cd ~/browser2-local-dev
+git switch main && git pull --ff-only origin main
+BROWSER2_LOCAL_PORT=8917 bash termux/start_v26.sh
+# Visit http://127.0.0.1:8917/__local__/ and try one world entry.
+python3 server/browser2_v28_local_site_v26.py report --port 8917
+```
+
+The `report` command prints only pack-alias counts, coarsely redacted
+HTTP 404 route shapes from the inherited V19 observer, and aggregated world
+WebSocket/Join counters. It does not print query strings, character IDs,
+tokens, cookies, raw WebSocket frames, private pathnames or credentials.
+
+**Interpretation:** a `manifestPackAliasesPresent` count and successful
+`packAliasHits` prove the manifest-to-archive HTTP transport shim works,
+**not** that the original game entered the world. If the client still fails,
+use `[HTTP ERROR]` route shapes, `[GAME]` and `[LAUNCH]` to locate the
+next mismatch. In the 2026-10-29 phone capture, 132 HTTP 404s were classified
+as `other_http`; their exact source is not yet confirmed. Avoid guessing
+responses or modifying game protocol without this evidence.
