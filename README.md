@@ -220,3 +220,55 @@ use `[HTTP ERROR]` route shapes, `[GAME]` and `[LAUNCH]` to locate the
 next mismatch. In the 2026-10-29 phone capture, 132 HTTP 404s were classified
 as `other_http`; their exact source is not yet confirmed. Avoid guessing
 responses or modifying game protocol without this evidence.
+
+
+## V28 Chrome loading investigation (2026-10-29)
+
+Phone trace from port 8917: V28 archive has all 114 packs, but
+`packAliasHits=0` and no GAME WebSocket/join counters. The trace shows
+62 attempts to fetch eight `/locales/en/*.json` translations and one
+`/catalogs/mobs` request returning 404. Those requests may or may
+not be fatal; the static `assets/catalogs/mobs.json` is **not** assumed
+to be the private `/catalogs/mobs` API.
+
+V27 now supports **opt-in** V20 browser boot telemetry and local V21
+verified-locale overlay. Both preserve original assets and client JS.
+
+1. Start a **new port** so the previous 8917 server remains unchanged:
+
+   ```sh
+   cd ~/browser2-local-dev
+   git switch main && git pull --ff-only origin main
+   BROWSER2_LOCAL_PORT=8921 bash termux/start_v26.sh
+   ```
+
+2. In Chrome open `http://127.0.0.1:8921/__local__/?b2diag=1` and
+   click **Yerel dünyaya gir**. This adds a browser observer only to the
+   HTTP response for this opt-in visit. The original files on disk stay
+   byte-for-byte identical. It records only controlled event
+   names, stage labels and error categories (not raw exception
+   messages, IDs, auth tokens, credentials, packet bytes or queries).
+
+3. In Termux run:
+
+   ```sh
+   python3 ~/browser2-local-dev/server/browser2_v28_pack_compat_v27.py report --port 8921
+   ```
+
+   Look at `[BROWSER BOOT]`, `[GAME]`, `[HTTP ERRORS]`, and
+   `[LOCALES]`. A browser boot failure category/stage pinpoints the
+   stage to fix next without inventing protocol data.
+
+The V21 locale overlay is reused **only if the original public JSON
+was already verified and saved** by the isolated V21 sync utility.
+Otherwise the response remains 404, rather than fabricating a translation.
+To optionally attempt to retrieve the missing original English locales
+from the official public host on your own phone, use:
+
+```sh
+python3 ~/browser2-local-dev/server/browser2_local_locale_sync_v21.py sync --lang en
+```
+
+If the public host returns HTTP 404 or denies requests, the sync report
+will say so and no replacement data will be invented. This network step
+is optional and is never executed by GitHub Actions.
