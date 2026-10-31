@@ -44,6 +44,8 @@ jobs:
           PY2
       - name: Check Python syntax
         run: python -m compileall -q server
+      - name: V88 original V28 shopdialog protocol and no-buy regression
+        run: python -m unittest discover -s server -p 'test_original_shop_v88.py' -v
       - name: V87 native item_proto name lookup, wiki source separation and quest text tests
         run: python -m unittest discover -s server -p 'test_native_npc_ui_v87.py' -v
       - name: V86 authenticated NPC in-game SQL preview and source patch tests
