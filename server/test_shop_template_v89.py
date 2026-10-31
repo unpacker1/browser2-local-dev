@@ -35,7 +35,7 @@ class OriginalV28TemplateIds(unittest.TestCase):
         ns={}
         exec(compile(patch(SOURCE),'test_v89','exec'),ns)
         catalog,opened=ns['frames'](9001,{'items':[{'itemVnum':20,'count':1},{'itemVnum':27001,'count':5}]})
-        self.assertEqual(catalog[:1],b'\\x09')
+        self.assertEqual(catalog[:1],b'\x09')
         self.assertEqual([json.loads(x[1:])['m'] for x in (catalog,opened)],['shop_catalog','open_shop'])
         self.assertEqual([x['templateId'] for x in json.loads(catalog[1:])['d'][0]['entries']],['v2_20','v2_27001'])
         self.assertTrue(ns['validate_client_contract'](catalog,opened))
