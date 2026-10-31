@@ -393,3 +393,41 @@ decoder can safely be connected. Do not inject synthetic NPC/shop items or
 silently switch to wiki-sourced prices.
 
 CI results: https://github.com/unpacker1/browser2-local-dev/actions/workflows/ci.yml
+
+
+## V80: Original wiki NPC catalogue into isolated SQLite (local test)
+
+The original V70 archive reports **10 NPC shops / 184 entries / 177 items with verified VNUM / 7 unresolved**.
+V80 imports the user's existing v70_wiki_shop_catalog.sqlite3 or v70_catalog.json into
+`~/BROWSER2_LOCAL_SERVER_DATA/wiki_shop_v80_ISOLATED.sqlite3` with original
+NPC IDs, item VNUMs, slot order, item counts and wiki prices unchanged. No wiki
+binary/data or native PLAYER DB is committed to this public repository.
+
+On the phone with Termux installed, start once:
+
+```sh
+pkg install -y python git
+curl -fL https://raw.githubusercontent.com/unpacker1/browser2-local-dev/main/termux/START_BROWSER2_SHOP_V80.sh -o "$HOME/START_BROWSER2_SHOP_V80.sh"
+bash "$HOME/START_BROWSER2_SHOP_V80.sh"
+```
+
+Open **http://127.0.0.1:8990/__local__/shop-test** in the same phone's browser
+while the command is running. The script runs V80 offline unit tests,
+imports the existing V70 catalog, compares `shop/shop_item` in native
+`player.sqlite3` **read-only** if present, and serves the isolated local
+test store on 127.0.0.1. It does not stop the existing 8986 GAME server.
+
+The local test store has a separate 5,000,000 test-Yang wallet, a test
+inventory and an atomic idempotent purchase ledger (duplicate clicks,
+insufficient balance, unresolved VNUM and concurrent transactions covered).
+The test is NOT the original native GAME shop: purchases do not modify
+the player's actual Yang, inventory, native GAME DB, or original JS/GLB/KTX2.
+No fake native GC_SHOP packet or false gameplay success is emitted. Native
+BUY/SELL and browser V28 shop UI integration remain **not implemented**:
+these require verified native ABI, safe native purchase command forwarding
+and confirmed GAME acceptance before exposing a real purchase button.
+
+The existing GitHub CI compiles all server modules and tests V14–V79.
+V80 code syntax is included in that check. V80's own runtime regression suite
+is run by the phone startup script and can also be run with:
+`python -m unittest discover -s server -p 'test_browser2_wiki_shop_v80.py' -v`.
