@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * *' # Daily UTC; offline-only checks
 
 permissions:
   contents: read
@@ -42,6 +44,10 @@ jobs:
           PY2
       - name: Check Python syntax
         run: python -m compileall -q server
+      - name: V79 native NPC shop wire offline regression (synthetic data only)
+        run: |
+          python server/native_shop_wire_v79.py
+          python -m unittest discover -s server -p 'test_native_shop_wire_v79.py' -v
       - name: V14 AUTH + WebSocket selftest
         run: python server/browser2_local_base_v14.py --selftest
       - name: V15 boot manifest selftest
