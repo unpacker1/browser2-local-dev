@@ -44,6 +44,8 @@ jobs:
           PY2
       - name: Check Python syntax
         run: python -m compileall -q server
+      - name: V86 authenticated NPC in-game SQL preview and source patch tests
+        run: python -m unittest discover -s server -p 'test_native_npc_ui_v86.py' -v
       - name: V85 exact NPC NameError fix regression (synthetic source only)
         run: python -m unittest discover -s server -p 'test_fix_native_shop_callback_v85.py' -v
       - name: V79 native NPC shop wire offline regression (synthetic data only)
