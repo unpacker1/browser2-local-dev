@@ -44,6 +44,8 @@ jobs:
           PY2
       - name: Check Python syntax
         run: python -m compileall -q server
+      - name: V90 native account/player ownership verified SQL inventory and Yang tests
+        run: python -m unittest discover -s server -p 'test_native_player_sql_v90.py' -v
       - name: V89 original V28 v2 templateId and locked shop tests
         run: python -m unittest discover -s server -p 'test_shop_template_v89.py' -v
       - name: V88 original V28 shopdialog protocol and no-buy regression
