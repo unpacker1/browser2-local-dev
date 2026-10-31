@@ -42,7 +42,31 @@ for name in native_shop_catalog_v69.py test_v69.py; do
   cp "$SRC/$name" "$DST/$name"
 done
 curl -fLsS "$BASE/server/native_shop_bridge_guard_v84.py" -o "$DST/native_shop_bridge_guard_v84.py"
-python3 "$DST/native_shop_bridge_guard_v84.py" --source "$SRC/native_v69.py" --destination "$DST/native_v69.py"
+if ! python3 "$DST/native_shop_bridge_guard_v84.py" --source "$SRC/native_v69.py" --destination "$DST/native_v69.py"; then
+  # A changed local V69 may have incompatible event handlers. Keep it untouched.
+  # If the previously downloaded original ZIP exists and its embedded V69 source
+  # matches our pinned reference, recover that source into the ISOLATED V84 dir.
+  echo '[V84] Yerel V69 farkli. Dokunulmadi; dogrulanmis eski arsiv yedegi araniyor.'
+  if [[ ! -f "$ZIP" ]]; then
+    echo '[HATA] Guvenli V69 arsivi da bulunamadi. Orijinal V69 ZIP dosyasini Download klasorune koy.' >&2
+    exit 7
+  fi
+  python3 - "$ZIP" "$DST" <<'PYZIP'
+import hashlib,sys,zipfile
+from pathlib import Path
+p=Path(sys.argv[1]);out=Path(sys.argv[2]);base='CEMREEFE_BROWSER2_V69_NATIVE_SHOP_CATALOG/'
+with zipfile.ZipFile(p) as z:
+    original=z.read(base+'native_v69.py')
+    expected='aefd34fa9e5b9599039ab8abe26470055f363b8b94d864c449d9c92b092ca4f3'
+    if hashlib.sha256(original).hexdigest()!=expected:
+        raise SystemExit('[HATA] ZIP icerisindeki V69 surumu de dogrulanamadi. Hicbir native dosya degismedi.')
+    (out/'native_v69_zip_verified.py').write_bytes(original)
+    for n in ('native_shop_catalog_v69.py','test_v69.py'):
+        (out/n).write_bytes(z.read(base+n))
+print('[V84] Dogrulanmis V69 yerel arsivinden sadece izole kaynak alindi.')
+PYZIP
+  python3 "$DST/native_shop_bridge_guard_v84.py" --source "$DST/native_v69_zip_verified.py" --destination "$DST/native_v69.py"
+fi
 python3 -m py_compile "$DST/native_v69.py" "$DST/native_shop_catalog_v69.py"
 (
   cd "$DST"
