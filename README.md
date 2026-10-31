@@ -371,3 +371,25 @@ real WebP files only. V30 uses new private QA SQLite:
 Ports 8899, 8917, 8921 and 8931 are not modified or stopped.
 The previous 173 static UI/icon 404s and first-village ground height,
 NPC/mob logic and character overlay are **not** claimed fixed.
+
+
+## V79: Automated native NPC shop wire checks (offline only)
+
+GitHub Actions tests V79 on every push, pull request, manual run and nightly
+schedule on the default branch. It runs synthetic C++-source-constrained
+GC_SHOP frame regression tests, including malformed-length and bounds checks.
+The downloadable Termux update artifact contains the Python decoder.
+
+**Important limitation:** The V79 test harness does not use the proprietary
+native GAME binary, original server SQL databases, account credentials, or
+original encrypted network traffic. Passing does **not** mean that NPC shops
+open in the actual game, that item catalogs were imported, or that purchasing
+works. The original client, native GAME/AUTH binaries, player database and
+shop records are not modified by CI.
+
+The source-derived SHOP_HOST_ITEM_MAX_NUM and per-item layout must still be
+confirmed against the user's locally owned native C++ build before any live
+decoder can safely be connected. Do not inject synthetic NPC/shop items or
+silently switch to wiki-sourced prices.
+
+CI results: https://github.com/unpacker1/browser2-local-dev/actions/workflows/ci.yml
